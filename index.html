@@ -60,6 +60,8 @@ header{display:flex;align-items:center;gap:14px;padding:10px 18px;border-bottom:
 #readerBody .c{cursor:pointer;border-radius:3px}
 #readerBody .c:hover{background:color-mix(in srgb,var(--mark) 55%,transparent)}
 #readerBody .cur{background:var(--mark)}
+#readerBody a.readerLink{color:#2879d0;text-decoration:underline;cursor:pointer}
+#readerBody a.readerLink *{color:inherit!important}
 #readerBody figure{margin:1.5em 0;text-align:center}
 #readerBody figure img{display:block;max-width:100%;height:auto;margin:auto;background:#fff}
 #readerBody figure.cur{outline:2px solid var(--accent);outline-offset:4px;background:transparent}
@@ -224,6 +226,7 @@ dialog::backdrop{background:rgba(0,0,0,.35)}
     <div class="row options">
       <label class="chk readerControl"><input type="checkbox" id="sWordScroll">単語ごとにスクロール</label>
       <label class="chk readerControl"><input type="checkbox" id="sShortWordScroll">短い章では単語ごとにスクロール</label>
+      <label class="chk readerControl"><input type="checkbox" id="sLinks">リンクを有効化</label>
       <label class="chk"><input type="checkbox" id="sPunct">句読点で間をとる</label>
       <label class="chk readerColor"><input type="checkbox" id="sColor">名前を色分け</label>
       <label class="chk"><input type="checkbox" id="sSlow">名前で少し長く</label>
@@ -288,9 +291,9 @@ const LS = {
   get(k,d){try{const v=localStorage.getItem("rsvp:"+k);return v==null?d:JSON.parse(v)}catch(e){return d}},
   set(k,v){try{localStorage.setItem("rsvp:"+k,JSON.stringify(v));return true}catch(e){return false}}
 };
-const DEF = {cpm:1500,group:1,min:3,size:56,punct:true,color:true,label:3,slow:true,vert:false,guide:true,mode:"rsvp",readerSize:20,wordScroll:false,shortWordScroll:false};
+const DEF = {cpm:1500,group:1,min:3,size:56,punct:true,color:true,label:3,slow:true,vert:false,guide:true,mode:"rsvp",readerSize:20,wordScroll:false,shortWordScroll:false,links:false};
 const S = Object.assign({}, DEF, LS.get("settings",{}));
-let loadedSource = null, pendingImages = {}, pendingPdf = {}, fileReadVersion = 0;
+let loadedSource = null, pendingImages = {}, pendingPdf = {}, pendingLinks = {}, fileReadVersion = 0;
 // 本文と画像は同じトランザクションで保存。設定・読書位置は従来どおり軽量な保存を使う。
 const BOOKS = {
   open(){ return new Promise((resolve,reject)=>{
@@ -358,9 +361,11 @@ function parseDoc(raw, opt){
   if (foot>=0) lines = lines.slice(0,foot);
 
   const chapters = [];
-  let cur = null;
+  let cur = null, pendingTargets = [];
   const newCh = t => { cur = {title:t, paras:[]}; chapters.push(cur); };
   for (let line of lines){
+    const target = line.trim().match(/^［＃RSVP移動先:([a-z0-9-]+)］$/);
+    if (target){ pendingTargets.push(target[1]); continue; }
     const page = line.trim().match(/^［＃RSVPページ:([a-z0-9-]+)］$/);
     if (page){
       if (opt.pdfPages && opt.pdfPages[page[1]]){
@@ -373,7 +378,7 @@ function parseDoc(raw, opt){
     if (image){
       if (opt.images && opt.images[image[1]]){
         if (!cur) newCh("");
-        cur.paras.push({atoms:[],heading:false,image:image[1]});
+        cur.paras.push({atoms:[],heading:false,image:image[1],targets:pendingTargets}); pendingTargets = [];
       }
       continue;
     }
@@ -385,7 +390,7 @@ function parseDoc(raw, opt){
     if (m){ head = m[1]; level = m[2]; }
     m = line.match(/［＃(?:窓)?(大|中|小)見出し］(.*?)［＃(?:窓)?(?:大|中|小)見出し終わり］/);
     if (m){ head = m[2]; level = m[1]; }
-    line = line.replace(/［＃[^］]*］/g,"").replace(/^[\s　]+|[\s　]+$/g,"");
+    line = line.replace(/［＃(?!RSVPリンク:|RSVPリンク終|RSVP移動先:)[^］]*］/g,"").replace(/^[\s　]+|[\s　]+$/g,"");
     if (!line) continue;
     if (!head && !literal){
       m = line.match(/^(#{1,3})\s+(.+)$/);
@@ -400,7 +405,7 @@ function parseDoc(raw, opt){
     }
     if (!cur) newCh("");
     if (opt.paren) line = line.replace(/((?:[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF々〆ヶ]|[\uD840-\uD87F][\uDC00-\uDFFF])+)[（(]([\u3041-\u3096ー]{1,12})[）)]/g,"｜$1《$2》");
-    cur.paras.push({atoms: parseRuby(line), heading: !!head});
+    cur.paras.push({atoms: parseRuby(line), heading: !!head, targets:pendingTargets}); pendingTargets = [];
   }
   const docTitle = opt.title || title || "無題";
   chapters.forEach((c,i)=>{ if(!c.title) c.title = chapters.length===1 ? docTitle : (i===0?"序":"第"+(i+1)+"章"); });
@@ -408,11 +413,21 @@ function parseDoc(raw, opt){
 }
 function parseRuby(s){
   const cps = Array.from(s), out = [];
+  let link = null, targets = [];
+  const add = a=>{ a.link = link; a.targets = targets; targets = []; out.push(a); };
   for (let i=0;i<cps.length;i++){
     const c = cps[i];
+    if (c==="［" && cps[i+1]==="＃"){
+      const end = cps.indexOf("］",i), token = cps.slice(i,end+1).join("");
+      const m = token.match(/^［＃RSVP(リンク|移動先):([a-z0-9-]+)］$/);
+      if (m || token==="［＃RSVPリンク終］"){
+        if (m?.[1]==="移動先") targets.push(m[2]); else link = m ? m[2] : null;
+        i = end; continue;
+      }
+    }
     if (c==="｜"||c==="|"){
       const lt = cps.indexOf("《",i+1), gt = lt>=0 ? cps.indexOf("》",lt) : -1;
-      if (lt>i+1 && gt>lt){ out.push(atom(cps.slice(i+1,lt).join(""), cps.slice(lt+1,gt).join(""))); i = gt; continue; }
+      if (lt>i+1 && gt>lt){ add(atom(cps.slice(i+1,lt).join(""), cps.slice(lt+1,gt).join(""))); i = gt; continue; }
       continue;
     }
     if (c==="《"){
@@ -421,11 +436,11 @@ function parseRuby(s){
         let j = out.length, base = "";
         while (j>0 && !out[j-1].r && isKanjiCh(out[j-1].t)) { j--; base = out[j].t + base; }
         const r = cps.slice(i+1,gt).join("");
-        if (base){ out.splice(j); out.push(atom(base,r)); }
+        if (base){ const first = out[j]; out.splice(j); const a = atom(base,r); a.link = first.link; a.targets = first.targets; out.push(a); }
         i = gt; continue;
       }
     }
-    out.push(atom(c,null));
+    add(atom(c,null));
   }
   // 長音符「ー」は直前の文字種を引き継ぐ（カタカナ語・ひらがな語の途中で切らない）
   for (let i=0;i<out.length;i++) if (out[i].k==="L"){
@@ -589,13 +604,18 @@ const num = n => n.toLocaleString("ja-JP");
 const circ = i => "("+(i+1)+")";
 const nameColor = n => `var(--n${n%6})`;
 
-function atomsHTML(atoms, withLabels, c){
+function atomsHTML(atoms, withLabels, c, linkOutput=false){
   let h = "", i = 0;
   while (i<atoms.length){
     const a = atoms[i];
+    if (linkOutput && S.links && a.link && DOC.links[a.link]){
+      let j = i+1; while (j<atoms.length && atoms[j].link===a.link) j++;
+      const url = DOC.links[a.link].url, href = /^https?:\/\//i.test(url||"") ? url : "#";
+      h += `<a class="readerLink" data-link="${a.link}" href="${esc(href)}"${href!=="#"?' target="_blank" rel="noopener noreferrer"':""}>${atomsHTML(atoms.slice(i,j),withLabels,c)}</a>`; i = j; continue;
+    }
     if (a.o>=0){
       let j = i, inner = "";
-      while (j<atoms.length && atoms[j].o===a.o){ inner += one(atoms[j]); j++; }
+      while (j<atoms.length && atoms[j].o===a.o && (!linkOutput || atoms[j].link===a.link)){ inner += one(atoms[j]); j++; }
       const col = S.color ? ` style="color:${nameColor(a.n)}"` : "";
       let lbl = "";
       if (withLabels && c && S.label>0 && c.lab[a.o] < S.label){
@@ -768,7 +788,7 @@ function renderReader(){
     for (const url of Object.values(pdfURLs)) URL.revokeObjectURL(url);
     pdfURLs = {}; pdfAssetDoc = null; pdfPageInfos = [];
   }
-  const key = [ST.ch,S.group,S.min,S.color].join("|");
+  const key = [ST.ch,S.group,S.min,S.color,S.links].join("|");
   const body = $("readerBody"), {chunks} = cur();
   body.style.width = "";
   if (readerDoc!==DOC || readerKey!==key){
@@ -781,7 +801,7 @@ function renderReader(){
       }
       let h = `<p${p.heading?' class="h"':""}>`;
       while (ci<chunks.length && chunks[ci].para===pi){
-        h += `<span class="c" data-i="${ci}">${atomsHTML(chunks[ci].atoms,false)}</span>`; ci++;
+        h += `<span class="c" data-i="${ci}">${atomsHTML(chunks[ci].atoms,false,null,true)}</span>`; ci++;
       }
       return h+"</p>";
     }).join("");
@@ -842,6 +862,40 @@ function updateReaderFooter(){
   $("btnFooter").setAttribute("aria-label",label);
   $("btnFooter").title = label;
 }
+function followReaderLink(id){
+  if (!S.links) return;
+  const link = DOC.links[id]; if (!link) return;
+  if (/^https?:\/\//i.test(link.url||"")){ window.open(link.url,"_blank","noopener,noreferrer"); return; }
+  for (let ch=0;ch<DOC.chapters.length;ch++){
+    const paras = DOC.chapters[ch].paras, chunks = buildChunks(ch).chunks;
+    for (let pi=0;pi<paras.length;pi++){
+      const p = paras[pi];
+      const a = p.atoms.find(a=>a.targets?.includes(link.target));
+      if (a || p.targets?.includes(link.target)){
+        const i = a ? chunks.findIndex(c=>c.atoms.includes(a)) : chunks.findIndex(c=>c.para>=pi);
+        const idx = i<0 ? Math.max(0,chunks.length-1) : i;
+        gotoChapter(ch,idx);
+        if (p.image){ ST.media = {id:p.image,idx}; alignReaderPosition(); savePos(); }
+        return;
+      }
+      const page = p.page && DOC.pdfPages?.[p.page];
+      if (page?.html.includes(`data-reader-target="${link.target}"`)){
+        gotoChapter(ch); const info = pdfPageInfos.find(x=>x.id===p.page);
+        if (info){ ST.idx = info.idx; ST.media = {id:info.id,idx:ST.idx}; alignReaderPosition(); renderMeta(); savePos();
+          const jump = ()=>{ const el = info.el.querySelector("iframe").contentDocument?.querySelector(`[data-reader-target="${link.target}"]`);
+            if (!el) return;
+            const lineEl = el.closest("[data-reader-line]") || el.querySelector("[data-reader-line]");
+            const line = info.lines.find(x=>x.id===lineEl?.dataset.readerLine);
+            if (line){ pdfSelectLine(info,line); alignReaderPosition(); }
+            else { const frame = info.el.querySelector("iframe"), s = $("readerScroll"); s.scrollTop += frame.getBoundingClientRect().top+el.getBoundingClientRect().top-s.getBoundingClientRect().top-s.clientHeight*.25; }
+          };
+          if (info.el.classList.contains("loaded")) jump(); else info.linkJump = jump;
+        } return;
+      }
+    }
+  }
+  toast("リンク先の本文が見つかりませんでした");
+}
 
 /* PDF変換EPUBは元のHTML・CSS・フォントを隔離したページで表示する。 */
 let readerTargetRect = null, pdfObserver = null, pdfAssetDoc = null, pdfURLs = {}, pdfPageInfos = [], pdfChunkTexts = [];
@@ -887,6 +941,17 @@ function pdfResourceURLs(){
   }
 }
 function pdfResolveAssets(s){ return s.replace(/rsvp-asset:([a-z0-9-]+)/g,(m,id)=>pdfURLs[id]||""); }
+function updatePdfLinks(d){
+  if (!d?.documentElement) return;
+  d.documentElement.classList.toggle("reader-links",!!S.links);
+  for (const el of d.querySelectorAll("[data-reader-link]")){
+    const link = S.links && DOC.links[el.dataset.readerLink];
+    if (link){
+      el.setAttribute("href",/^https?:\/\//i.test(link.url||"") ? link.url : "#");
+      el.setAttribute("tabindex","0"); el.setAttribute("target","_blank"); el.setAttribute("rel","noopener noreferrer");
+    } else for (const name of ["href","tabindex","target","rel"]) el.removeAttribute(name);
+  }
+}
 function pdfSelectLine(info,line,point){
   readerUserScroll = false; cancelAnimationFrame(readerFrame);
   let off = line?.textStart;
@@ -918,7 +983,12 @@ function loadPdfFrame(info){
     await d.fonts.ready;
     if (!frame.isConnected) return;
     info.el.classList.add("loaded");
+    const linkStyle = d.createElement("style");
+    linkStyle.textContent = ".reader-links [data-reader-link],.reader-links [data-reader-link] *{color:#2879d0!important;text-decoration:underline;cursor:pointer}";
+    d.head.append(linkStyle); updatePdfLinks(d);
     d.addEventListener("click",e=>{
+      const link = S.links && e.target.closest("[data-reader-link]");
+      if (link){ e.preventDefault(); followReaderLink(link.dataset.readerLink); return; }
       if (d.getSelection()?.toString()) return;
       const el = e.target.closest("[data-reader-line]");
       const line = info.lines.find(x=>x.id===el?.dataset.readerLine);
@@ -941,6 +1011,7 @@ function loadPdfFrame(info){
       if (readerUserScroll) updateReaderPosition();
       else alignReaderPosition();
     }
+    if (info.linkJump){ const jump = info.linkJump; info.linkJump = null; jump(); }
   };
 }
 function renderPdfReader(){
@@ -986,6 +1057,7 @@ function renderPdfReader(){
     info.el.style.width = width+"px"; info.el.style.height = page.height*info.scale+"px";
     const sheet = info.el.querySelector("iframe").contentDocument?.getElementById("sbo-rt-content");
     if (sheet) sheet.style.transform = `scale(${info.scale})`;
+    updatePdfLinks(info.el.querySelector("iframe").contentDocument);
   }
   $("readerPrev").disabled = ST.ch<=0;
   $("readerNext").disabled = ST.ch>=DOC.chapters.length-1;
@@ -1189,6 +1261,8 @@ function bindSettings(){
   $("sShortWordScroll").onchange = e=>{
     S.shortWordScroll = e.target.checked; wordScrollDelta = 0; LS.set("settings",S);
   };
+  $("sLinks").checked = !!S.links;
+  $("sLinks").onchange = e=>{ S.links = e.target.checked; LS.set("settings",S); renderReader(); };
 }
 function bumpSpeed(d){
   S.cpm = Math.max(300, Math.min(3000, S.cpm+d)); LS.set("settings",S);
@@ -1207,7 +1281,7 @@ function loadDoc(src, keepPos){
   let occ = 0;
   for (const ch of parsed.chapters) for (const p of ch.paras) occ = markNames(p.atoms, chars, occ);
   loadedSource = src;
-  DOC = {title: src.title || parsed.title || "無題", author: src.author || parsed.author || "", chars, images:src.images||{}, pdfPages:src.pdfPages,pdfStyles:src.pdfStyles,pdfAssets:src.pdfAssets,chapters: parsed.chapters};
+  DOC = {title: src.title || parsed.title || "無題", author: src.author || parsed.author || "", chars, links:src.links||{}, images:src.images||{}, pdfPages:src.pdfPages,pdfStyles:src.pdfStyles,pdfAssets:src.pdfAssets,chapters: parsed.chapters};
   CH_CACHE.clear();
   ST.ch = 0; ST.idx = 0; ST.media = null; ST.footerExpanded = false; ST.sess = {ms:0,chars:0};
   if (keepPos){
@@ -1223,6 +1297,7 @@ function loadDoc(src, keepPos){
 function openDialog(){
   const src = loadedSource || SAMPLE;
   pendingImages = src.images || {}; fileReadVersion++;
+  pendingLinks = src.links || {};
   pendingPdf = {pdfPages:src.pdfPages,pdfStyles:src.pdfStyles,pdfAssets:src.pdfAssets};
   $("inLoad").disabled = false;
   $("inText").value = src === SAMPLE ? "" : src.text;
@@ -1252,6 +1327,7 @@ async function readFile(f){
   }
   if (version!==fileReadVersion) return;
   pendingImages = meta.images || {};
+  pendingLinks = meta.links || {};
   pendingPdf = {pdfPages:meta.pdfPages,pdfStyles:meta.pdfStyles,pdfAssets:meta.pdfAssets};
   $("inText").value = txt;
   const p = parseDoc(txt,{paren:$("inParen").checked,images:pendingImages,pdfPages:meta.pdfPages});
@@ -1303,9 +1379,11 @@ function inlineText(el){
       else s += inlineText(n);
     }
   }
+  if (el.hasAttribute("data-reader-link")) s = `［＃RSVPリンク:${el.getAttribute("data-reader-link")}］${s}［＃RSVPリンク終］`;
+  if (el.hasAttribute("data-reader-target")) s = `［＃RSVP移動先:${el.getAttribute("data-reader-target")}］`+s;
   return s;
 }
-const headLine = (txt)=>{ const plain = txt.replace(/｜/g,"").replace(/《[^》]*》/g,"").replace(/[「」［］＃]/g,""); return `［＃「${plain}」は小見出し］${txt}`; };
+const headLine = (txt)=>{ const plain = txt.replace(/［＃RSVP[^］]*］/g,"").replace(/｜/g,"").replace(/《[^》]*》/g,"").replace(/[「」［］＃]/g,""); return `［＃「${plain}」は小見出し］${txt}`; };
 function htmlToLines(body, onId){
   const lines = []; let buf = "";
   const flush = ()=>{ for (const l of buf.split("\n")){ const t = l.replace(/^[ \t]+|[ \t]+$/g,""); if (t.replace(/[\s　]/g,"")) lines.push(t); } buf = ""; };
@@ -1313,11 +1391,17 @@ function htmlToLines(body, onId){
     for (const n of el.childNodes){
       if (n.nodeType===3){ buf += n.data.replace(/\s+/g," "); continue; }
       if (n.nodeType!==1) continue;
+      const target = n.getAttribute("data-reader-target");
+      if (target){
+        if (/^h[1-6]$/i.test(n.localName)){ flush(); lines.push(`［＃RSVP移動先:${target}］`); }
+        else buf += `［＃RSVP移動先:${target}］`;
+      }
       const id = n.getAttribute("id");
       if (id && onId){ const mk = onId(id); if (mk){ flush(); lines.push(...mk); } }
       const t = n.localName.toLowerCase();
       if (n.hasAttribute("data-reader-image")){ flush(); lines.push(`［＃RSVP画像:${n.getAttribute("data-reader-image")}］`); continue; }
       if (SKIP.has(t)) continue;
+      if (n.hasAttribute("data-reader-link")){ buf += inlineText(n).replace(/^［＃RSVP移動先:[^］]+］/,""); continue; }
       if (t==="ruby"){ buf += rubyText(n); continue; }
       if (t==="br"){ buf += "\n"; continue; }
       if (t==="img"){ const a = (n.getAttribute("alt")||"").trim(); if (a && (Array.from(a).length===1 || /gaiji/i.test(n.getAttribute("class")||""))) buf += a; continue; }
@@ -1527,6 +1611,28 @@ async function epubToText(buf){
   let chDepth = chapters.length ? Math.min(...chapters.map(e=>e.depth)) : 1;
   if (!chapters.length) while (toc.filter(e=>e.depth===chDepth).length<=2 && toc.some(e=>e.depth>chDepth)) chDepth++;
   const marker = e => e.depth<=chDepth ? "# "+e.title.replace(/^#+\s*/,"") : headLine(e.title);
+  const links = {}, targetIds = new Map();
+  const targetId = key=>{ if (!targetIds.has(key)) targetIds.set(key,"target-"+targetIds.size); return targetIds.get(key); };
+  for (const {it,body} of docs) for (const a of body.querySelectorAll("a[href]")){
+    const href = a.getAttribute("href"); let link;
+    try {
+      if (/^https?:\/\//i.test(href)) link = {url:new URL(href).href};
+      else if (href && !/^[a-z][a-z0-9+.-]*:/i.test(href)){
+        const url = new URL(href,"http://epub.invalid/"+it.href);
+        if (url.origin!=="http://epub.invalid") link = {url:url.href};
+        else link = {target:targetId(decodeURIComponent(url.pathname.slice(1))+"#"+decodeURIComponent(url.hash.slice(1)))};
+      }
+    } catch(e){}
+    if (link){ const id = "link-"+Object.keys(links).length; links[id] = link; a.setAttribute("data-reader-link",id); }
+  }
+  for (const {it,body} of docs){
+    for (const el of body.querySelectorAll("[id]")){
+      const target = targetIds.get(it.href+"#"+el.getAttribute("id"));
+      if (target) el.setAttribute("data-reader-target",target);
+    }
+    const target = targetIds.get(it.href+"#");
+    if (target){ body.setAttribute("data-reader-target",target); body.querySelector(".pf")?.setAttribute("data-reader-target",target); }
+  }
   const isPdf = docs.some(x=>x.body.querySelector(".pf .t"));
   let P = null;
   const rawStyles = new Map();
@@ -1612,6 +1718,7 @@ async function epubToText(buf){
     }
     const onId = id=>{ const es = byId.get(id); if (!es) return null; byId.delete(id); return emit(es); };
     const startLines = emit(atStart);
+    if (!isPdf && body.hasAttribute("data-reader-target")) startLines.unshift(`［＃RSVP移動先:${body.getAttribute("data-reader-target")}］`);
     let lines = isPdf ? pdfToLines(body, P, onId) : htmlToLines(body, onId);
     if (!toc.length){
       const h = lines.find(l=>l.startsWith("［＃「"));
@@ -1677,7 +1784,7 @@ async function epubToText(buf){
       } } finally { host.remove(); }
     }
   }
-  return {text, title, author, images, pdfPages,pdfStyles,pdfAssets,pdf: isPdf, puaFixed: P ? P.usePUA : false, puaFail: P ? !P.puaOK : false};
+  return {text, title, author, images, links, pdfPages,pdfStyles,pdfAssets,pdf: isPdf, puaFixed: P ? P.usePUA : false, puaFail: P ? !P.puaOK : false};
 }
 
 /* ============ イベント ============ */
@@ -1685,6 +1792,8 @@ function bindEvents(){
   $("btnFooter").onclick = ()=>{ ST.footerExpanded = !ST.footerExpanded; updateReaderFooter(); };
   $("sMode").onchange = e=>setReaderMode(e.target.value);
   $("readerBody").onclick = e=>{
+    const link = e.target.closest("a.readerLink");
+    if (link){ e.preventDefault(); followReaderLink(link.dataset.link); return; }
     if (window.getSelection()?.toString()) return;
     const el = e.target.closest(".c,figure[data-media]");
     if (el?.dataset.media){ readerUserScroll = false; cancelAnimationFrame(readerFrame); ST.idx = +el.dataset.i; ST.media = {id:el.dataset.media,idx:ST.idx}; markReaderPosition(); renderMeta(); savePos(); }
@@ -1731,7 +1840,7 @@ function bindEvents(){
   $("inLoad").onclick = async ()=>{
     const text = $("inText").value;
     if (!text.trim()){ $("inInfo").textContent = "本文を貼り付けるか、ファイルを選んでください"; return; }
-    const src = {text, title:$("inTitle").value.trim(), author:$("inAuthor").value.trim(), chars:$("inChars").value, paren:$("inParen").checked, images:pendingImages,...pendingPdf};
+    const src = {text, title:$("inTitle").value.trim(), author:$("inAuthor").value.trim(), chars:$("inChars").value, paren:$("inParen").checked, images:pendingImages,links:pendingLinks,...pendingPdf};
     if (loadDoc(src, true)){
       $("dlg").close();
       const {pdfPages,pdfStyles,pdfAssets,...textSource} = src;
