@@ -49,7 +49,7 @@ header{display:flex;align-items:center;gap:14px;padding:10px 18px;border-bottom:
 #reader{position:absolute;inset:0;display:none;flex-direction:column}
 .normal #reader{display:flex}
 .normal #stage,.normal .tick,.normal #hint,.normal #preview{display:none!important}
-.normal #ctrl .row:first-child>:not(#btnReset):not(.readerControl),.normal #ctrl .row.two>:not(.readerColor){display:none}
+.normal #ctrl .row:first-child>:not(#btnReset):not(#btnEnd):not(.readerControl),.normal #ctrl .options>:not(.readerColor):not(.readerControl){display:none}
 #ctrl .readerControl{display:none}
 .normal #ctrl .readerControl{display:flex}
 #readerScroll{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;scroll-behavior:auto;padding:28px 24px 40px}
@@ -112,12 +112,12 @@ header{display:flex;align-items:center;gap:14px;padding:10px 18px;border-bottom:
 
 #ctrl{padding:10px 18px 14px;display:flex;flex-direction:column;gap:10px}
 .row{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px}
-.row.two{justify-content:center}
+.row.options{justify-content:center}
 .grp{display:flex;align-items:center;gap:8px;white-space:nowrap}
 .grp>span:first-child{color:var(--sub)}
 .val{font-variant-numeric:tabular-nums;min-width:5.6em}
 .val.px{min-width:3.2em}
-#btnReset{width:44px;height:38px;border:1px solid var(--line);background:var(--panel);border-radius:8px;cursor:pointer;display:grid;place-items:center}
+#btnReset,#btnEnd{width:44px;height:38px;border:1px solid var(--line);background:var(--panel);border-radius:8px;cursor:pointer;display:grid;place-items:center}
 #btnPlay{height:38px;min-width:110px;border:0;border-radius:8px;background:var(--accent);color:var(--accent-ink);font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;padding:0 18px}
 select{background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:5px 8px;min-width:108px}
 input[type=range]{accent-color:var(--accent);width:150px}
@@ -206,6 +206,7 @@ dialog::backdrop{background:rgba(0,0,0,.35)}
   <div id="ctrl">
     <div class="row">
       <button id="btnReset" title="章の先頭へ" aria-label="章の先頭へ"><svg width="14" height="12" viewBox="0 0 14 12"><rect x="0" y="0" width="2" height="12" fill="currentColor"/><path d="M8 0v12L2 6z M14 0v12L8 6z" fill="currentColor"/></svg></button>
+      <button id="btnEnd" title="章の最後へ" aria-label="章の最後へ"><svg width="14" height="12" viewBox="0 0 14 12"><rect x="12" y="0" width="2" height="12" fill="currentColor"/><path d="M6 0v12l6-6z M0 0v12l6-6z" fill="currentColor"/></svg></button>
       <label class="grp readerControl"><span>文字</span><input type="range" id="sReaderSize" min="14" max="36" step="1"><span class="val px" id="vReaderSize"></span></label>
       <button class="ghost readerControl" id="readerPrev">前の章へ</button>
       <button class="ghost readerControl" id="readerNext">次の章へ</button>
@@ -216,12 +217,14 @@ dialog::backdrop{background:rgba(0,0,0,.35)}
       <div class="grp"><span>最小</span><select id="sMin">
         <option value="1">制限なし</option><option value="2">2字以上</option><option value="3">3字以上</option><option value="4">4字以上</option><option value="5">5字以上</option></select></div>
       <div class="grp"><span>文字</span><input type="range" id="sSize" min="28" max="120" step="2"><span class="val px" id="vSize"></span></div>
-      <label class="chk"><input type="checkbox" id="sPunct">句読点で間をとる</label>
-    </div>
-    <div class="row two">
-      <label class="chk readerColor"><input type="checkbox" id="sColor">名前を色分け</label>
       <div class="grp"><span>人物ラベル</span><select id="sLabel">
         <option value="0">表示しない</option><option value="1">章の最初1回</option><option value="3">章の最初3回</option><option value="999">毎回</option></select></div>
+    </div>
+    <div class="row options">
+      <label class="chk readerControl"><input type="checkbox" id="sWordScroll">単語ごとにスクロール</label>
+      <label class="chk readerControl"><input type="checkbox" id="sShortWordScroll">短い章では単語ごとにスクロール</label>
+      <label class="chk"><input type="checkbox" id="sPunct">句読点で間をとる</label>
+      <label class="chk readerColor"><input type="checkbox" id="sColor">名前を色分け</label>
       <label class="chk"><input type="checkbox" id="sSlow">名前で少し長く</label>
       <label class="chk"><input type="checkbox" id="sVert">縦表示</label>
       <label class="chk"><input type="checkbox" id="sGuide">注視点ガイド</label>
@@ -284,7 +287,7 @@ const LS = {
   get(k,d){try{const v=localStorage.getItem("rsvp:"+k);return v==null?d:JSON.parse(v)}catch(e){return d}},
   set(k,v){try{localStorage.setItem("rsvp:"+k,JSON.stringify(v));return true}catch(e){return false}}
 };
-const DEF = {cpm:1500,group:1,min:3,size:56,punct:true,color:true,label:3,slow:true,vert:false,guide:true,mode:"rsvp",readerSize:20};
+const DEF = {cpm:1500,group:1,min:3,size:56,punct:true,color:true,label:3,slow:true,vert:false,guide:true,mode:"rsvp",readerSize:20,wordScroll:false,shortWordScroll:false};
 const S = Object.assign({}, DEF, LS.get("settings",{}));
 let loadedSource = null, pendingImages = {}, pendingPdf = {}, fileReadVersion = 0;
 // 本文と画像は同じトランザクションで保存。設定・読書位置は従来どおり軽量な保存を使う。
@@ -685,6 +688,41 @@ function renderAll(){ renderWord(); placeTicks(); renderMeta(); renderPreview();
 
 /* ============ 通常リーダー（速読と章・チャンク位置を共有） ============ */
 let readerDoc = null, readerKey = "", readerUserScroll = false, readerFrame = 0;
+let wordScrollDelta = 0, wordScrollTime = 0;
+function stepReaderScroll(delta){
+  const now = performance.now();
+  if (now-wordScrollTime>180 || Math.sign(delta)!==Math.sign(wordScrollDelta)) wordScrollDelta = 0;
+  wordScrollTime = now; wordScrollDelta += delta;
+  readerUserScroll = false; cancelAnimationFrame(readerFrame);
+  if (Math.abs(wordScrollDelta)<24) return;
+  const dir = Math.sign(wordScrollDelta); wordScrollDelta = 0;
+  const i = Math.max(0,Math.min(cur().chunks.length-1,ST.idx+dir));
+  if (i!==ST.idx) seek(i);
+}
+function readerWordScrollEnabled(){
+  const scroller = $("readerScroll");
+  return S.wordScroll || (S.shortWordScroll && scroller.scrollHeight<=scroller.clientHeight+1);
+}
+function bindReaderScrollInput(target){
+  target.addEventListener("pointerdown",()=>{ readerUserScroll = true; },{passive:true});
+  target.addEventListener("wheel",e=>{
+    if (S.mode!=="normal" || !readerWordScrollEnabled() || e.ctrlKey || Math.abs(e.deltaX)>Math.abs(e.deltaY)){
+      readerUserScroll = true; return;
+    }
+    e.preventDefault();
+    stepReaderScroll(e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?$("readerScroll").clientHeight:1));
+  },{passive:false});
+  let touch = null;
+  target.addEventListener("touchstart",e=>{ touch = e.touches.length===1 ? {x:e.touches[0].clientX,y:e.touches[0].clientY} : null; wordScrollDelta = 0; },{passive:true});
+  target.addEventListener("touchmove",e=>{
+    if (!touch || e.touches.length!==1){ touch = null; return; }
+    const point = e.touches[0], dy = touch.y-point.clientY, dx = touch.x-point.clientX;
+    touch = {x:point.clientX,y:point.clientY};
+    if (S.mode!=="normal" || !readerWordScrollEnabled() || Math.abs(dx)>Math.abs(dy)){ readerUserScroll = true; return; }
+    e.preventDefault(); stepReaderScroll(dy);
+  },{passive:false});
+  for (const type of ["touchend","touchcancel"]) target.addEventListener(type,()=>{ touch = null; wordScrollDelta = 0; },{passive:true});
+}
 function markReaderPosition(){
   if (DOC.pdfPages) return markPdfPosition();
   readerTargetRect = null;
@@ -871,7 +909,7 @@ function loadPdfFrame(info){
       const line = info.lines.find(x=>x.id===el?.dataset.readerLine);
       if (line || e.target.closest(".pf")) pdfSelectLine(info,line,e);
     });
-    for (const type of ["wheel","touchmove","pointerdown"]) d.addEventListener(type,()=>{ readerUserScroll = true; },{passive:true});
+    bindReaderScrollInput(d);
     d.addEventListener("keydown",e=>{
       const scroller = $("readerScroll"), dir = ["ArrowUp","PageUp"].includes(e.key)?-1:1;
       if ([" ","ArrowUp","ArrowDown","PageUp","PageDown","Home","End"].includes(e.key)){
@@ -1127,6 +1165,14 @@ function bindSettings(){
   $("sReaderSize").oninput = e=>{
     S.readerSize = +e.target.value; $("vReaderSize").textContent = S.readerSize+"px";
     LS.set("settings",S); renderReader();
+  };
+  $("sWordScroll").checked = !!S.wordScroll;
+  $("sWordScroll").onchange = e=>{
+    S.wordScroll = e.target.checked; wordScrollDelta = 0; LS.set("settings",S);
+  };
+  $("sShortWordScroll").checked = !!S.shortWordScroll;
+  $("sShortWordScroll").onchange = e=>{
+    S.shortWordScroll = e.target.checked; wordScrollDelta = 0; LS.set("settings",S);
   };
 }
 function bumpSpeed(d){
@@ -1635,13 +1681,14 @@ function bindEvents(){
   $("readerPrev").onclick = ()=>{ if (ST.ch>0) gotoChapter(ST.ch-1); };
   $("readerNext").onclick = ()=>{ if (ST.ch<DOC.chapters.length-1) gotoChapter(ST.ch+1); };
   const scroller = $("readerScroll");
-  for (const type of ["wheel","touchmove","pointerdown"]) scroller.addEventListener(type,()=>{ readerUserScroll = true; },{passive:true});
+  bindReaderScrollInput(scroller);
   scroller.addEventListener("scroll",()=>{
     cancelAnimationFrame(readerFrame); readerFrame = requestAnimationFrame(updateReaderPosition);
   });
   $("stage").onclick = toggle;
   $("btnPlay").onclick = toggle;
   $("btnReset").onclick = ()=>seek(0);
+  $("btnEnd").onclick = ()=>seek(cur().chunks.length-1);
   $("chSel").onchange = e=>gotoChapter(+e.target.value);
   $("bar").onclick = e=>{
     const r = $("bar").getBoundingClientRect(); const {chunks,total} = cur();
