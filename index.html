@@ -103,7 +103,8 @@ header{display:flex;align-items:center;gap:14px;padding:10px 18px;border-bottom:
 #preview .c.cur{background:var(--mark)}
 #preview rt{font-size:.5em;color:var(--sub)}
 #preview .nm{font-weight:700}
-.gap{color:var(--sub);font-family:var(--sans);font-size:12px}
+.gap{display:block;color:var(--sub);font-family:var(--sans);font-size:12px;border:0;background:transparent;cursor:pointer;padding:3px 8px;min-width:40px}
+.gap:hover{background:var(--mark);border-radius:3px}
 
 #bar{height:4px;margin:0 18px;background:var(--track);border-radius:2px;position:relative;cursor:pointer}
 #bar::before{content:"";position:absolute;inset:-8px 0}
@@ -648,25 +649,39 @@ function renderMeta(){
   } else $("mAll").textContent = "";
 }
 let pvRange = [0,0];
-function renderPreview(force){
+const PV_BEFORE = 2, PV_AFTER = 5, PV_STEP = PV_BEFORE+PV_AFTER+1;
+let pvDoc = null, pvChapter = -1, pvExtraBefore = 0, pvExtraAfter = 0;
+function renderPreview(force, keepScroll=false){
   if (ST.playing) return;
   const {chunks} = cur(); const c = chunks[ST.idx]; if (!c) return;
   const ch = DOC.chapters[ST.ch];
-  const p0 = Math.max(0, c.para-2), p1 = Math.min(ch.paras.length-1, c.para+5);
+  if (pvDoc!==DOC || pvChapter!==ST.ch){
+    pvDoc = DOC; pvChapter = ST.ch; pvExtraBefore = 0; pvExtraAfter = 0;
+  }
+  const pv = $("preview"), R = pv.getBoundingClientRect();
+  const anchor = keepScroll ? [...$("pvBody").querySelectorAll(".c")].find(el=>el.getBoundingClientRect().bottom>R.top) : null;
+  const anchorIndex = anchor?.dataset.i, anchorTop = anchor?.getBoundingClientRect().top;
+  const p0 = Math.max(0,c.para-PV_BEFORE-pvExtraBefore), p1 = Math.min(ch.paras.length-1,c.para+PV_AFTER+pvExtraAfter);
   if (force || p0!==pvRange[0] || p1!==pvRange[1] || !$("pvBody").firstChild){
     pvRange = [p0,p1];
-    let h = p0>0 ? `<div class="gap">…</div>` : "";
+    let h = p0>0 ? `<button class="gap" data-expand="before" aria-label="省略された前の本文を表示" title="省略された前の本文を表示">…</button>` : "";
     let ci = chunks.findIndex(x=>x.para>=p0);
     for (let p=p0;p<=p1;p++){
       h += `<p${ch.paras[p].heading?' class="h"':""}>`;
       while (ci>=0 && ci<chunks.length && chunks[ci].para===p){ h += `<span class="c" data-i="${ci}">${atomsHTML(chunks[ci].atoms,false)}</span>`; ci++; }
       h += "</p>";
     }
-    if (p1<ch.paras.length-1) h += `<div class="gap">…</div>`;
+    if (p1<ch.paras.length-1) h += `<button class="gap" data-expand="after" aria-label="省略された後の本文を表示" title="省略された後の本文を表示">…</button>`;
     $("pvBody").innerHTML = h;
   }
   $("pvBody").querySelectorAll(".cur").forEach(e=>e.classList.remove("cur"));
   const el = $("pvBody").querySelector(`[data-i="${ST.idx}"]`);
+  if (keepScroll){
+    if (el) el.classList.add("cur");
+    const restored = anchorIndex && $("pvBody").querySelector(`[data-i="${anchorIndex}"]`);
+    if (restored) pv.scrollTop += restored.getBoundingClientRect().top-anchorTop;
+    return;
+  }
   if (el){ el.classList.add("cur"); const pv = $("preview"); const r = el.getBoundingClientRect(), R = pv.getBoundingClientRect();
     if (r.top<R.top+40 || r.bottom>R.bottom-20) pv.scrollTop += (r.top - R.top) - pv.clientHeight*0.35; }
 }
@@ -1694,7 +1709,14 @@ function bindEvents(){
     const r = $("bar").getBoundingClientRect(); const {chunks,total} = cur();
     seek(idxAtOffset((e.clientX-r.left)/r.width*total));
   };
-  $("pvBody").onclick = e=>{ const el = e.target.closest(".c"); if (el) seek(+el.dataset.i); };
+  $("pvBody").onclick = e=>{
+    const gap = e.target.closest("[data-expand]");
+    if (gap){
+      if (gap.dataset.expand==="before") pvExtraBefore += PV_STEP; else pvExtraAfter += PV_STEP;
+      renderPreview(true,true); return;
+    }
+    const el = e.target.closest(".c"); if (el) seek(+el.dataset.i);
+  };
   $("btnOpen").onclick = openDialog;
   $("inCancel").onclick = ()=>$("dlg").close();
   const onFileErr = e=>{ $("inInfo").textContent = "読めませんでした：" + (e && e.message || "形式を確認してください"); };
