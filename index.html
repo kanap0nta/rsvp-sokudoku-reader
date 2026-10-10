@@ -741,8 +741,23 @@ function renderReader(){
 }
 function updateReaderPosition(){
   if (S.mode!=="normal" || !readerUserScroll || ST.finished) return;
+  const scroller = $("readerScroll");
+  if (scroller.scrollTop<=1){
+    const changed = ST.idx!==0 || ST.media!==null;
+    ST.idx = 0; ST.media = null; markReaderPosition();
+    if (changed){ renderMeta(); savePos(); }
+    return;
+  }
+  // 最下部では上から1/4の行ではなく、本文の最後の文節を選ぶ。
+  // スクロールできない短い章は、表示しただけで末尾に進めない。
+  if (scroller.scrollHeight>scroller.clientHeight && scroller.scrollHeight-scroller.clientHeight-scroller.scrollTop<=1){
+    const i = Math.max(0,cur().chunks.length-1), changed = ST.idx!==i || ST.media!==null;
+    ST.idx = i; ST.media = null; markReaderPosition();
+    if (changed){ renderMeta(); savePos(); }
+    return;
+  }
   if (DOC.pdfPages) return updatePdfPosition();
-  const scroller = $("readerScroll"), R = scroller.getBoundingClientRect();
+  const R = scroller.getBoundingClientRect();
   const line = R.top + scroller.clientHeight*.25;
   // 折り返された文節も各行の矩形で判定し、読み進める目安を上から1/4に置く。
   let target = null;
