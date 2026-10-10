@@ -58,6 +58,10 @@ header{display:flex;align-items:center;gap:14px;padding:10px 18px;border-bottom:
 #readerBody p.h{font-weight:700;margin:0 0 1.5em;letter-spacing:.15em}
 #readerBody pre.codeBlock,#preview pre.codeBlock{font-family:Consolas,"Cascadia Mono",monospace;font-size:.85em;line-height:1.6;white-space:pre;overflow-wrap:normal;overflow-x:auto;tab-size:4;padding:12px 14px;margin:0 0 1.2em;background:var(--panel);border:1px solid var(--line);border-radius:7px;letter-spacing:normal}
 #readerBody rt{font-size:.5em;color:var(--sub)}
+#readerBody code,#preview code,#word code{font-family:Consolas,"Cascadia Mono",monospace;font-size:.9em}
+#readerBody pre.codeBlock code,#preview pre.codeBlock code{font-size:inherit}
+#readerBody strong,#preview strong,#word strong{font-weight:700}
+#readerBody em,#preview em,#word em{font-style:italic}
 #readerBody .c{cursor:pointer;border-radius:3px}
 #readerBody .c:hover{background:color-mix(in srgb,var(--mark) 55%,transparent)}
 #readerBody .cur{background:var(--mark)}
@@ -67,6 +71,18 @@ header{display:flex;align-items:center;gap:14px;padding:10px 18px;border-bottom:
 #readerBody figure img{display:block;max-width:100%;height:auto;margin:auto;background:#fff}
 #readerBody figure.cur{outline:2px solid var(--accent);outline-offset:4px;background:transparent}
 #readerBody figcaption{font-family:var(--sans);font-size:.7em;line-height:1.7;color:var(--sub);margin-top:.6em}
+#readerBody .readerTable{width:100%;margin:1.2em 0;border-collapse:collapse;font:inherit;font-size:.9em;line-height:1.7}
+#readerBody .readerTable td,#readerBody .readerTable th{text-align:left;vertical-align:top;padding:.4em .6em;border:1px solid var(--line)}
+#readerBody .readerTable p{margin:0 0 .6em}
+#readerBody .readerTable figure{margin:0}
+#readerBody .readerNote{margin:1.4em 0}
+#readerBody .readerNote .readerTable{margin:0}
+#readerBody .readerNote td,#readerBody .readerNote th{border:0;padding:0 .8em 0 0}
+#readerBody .readerNote td:has(.readerIcon){width:4.5rem}
+#readerBody .readerNote .readerIcon img{width:4rem;max-width:4rem;height:auto}
+#readerBody .readerNote p:first-of-type{font-weight:700}
+#readerBody .readerNote p{line-height:1.7}
+#readerBody hr{border:0;border-top:1px solid var(--line);margin:1.3em 0}
 #readerBody.pdfBook{max-width:none;overflow-wrap:normal;line-height:normal}
 .pdfPage{position:relative;margin:0 auto 24px;background:#fff;box-shadow:0 1px 5px #0002}
 .pdfPage iframe{display:block;border:0;width:100%;height:100%;background:#fff}
@@ -362,14 +378,31 @@ function parseDoc(raw, opt){
   if (foot>=0) lines = lines.slice(0,foot);
 
   const chapters = [];
-  let cur = null, pendingTargets = [];
+  let cur = null, pendingTargets = [], layout = [];
+  const addPara = p=>cur.paras.push({...p,layout:layout.slice()});
   const newCh = t => { cur = {title:t, paras:[]}; chapters.push(cur); };
   for (let line of lines){
+    const structure = line.trim().match(/^［＃RSVP構造:(.*)］$/);
+    if (structure){
+      try {
+        const item = JSON.parse(decodeURIComponent(structure[1]));
+        if (["div","table","thead","tbody","tfoot","tr","td","th"].includes(item.tag)) layout.push(item);
+      } catch(e){}
+      continue;
+    }
+    if (line.trim()==="［＃RSVP構造終］"){
+      const item = layout[layout.length-1];
+      if (cur && item && ["td","th"].includes(item.tag) && !cur.paras.some(p=>p.layout.some(x=>x.id===item.id))) addPara({atoms:[],heading:false});
+      layout.pop(); continue;
+    }
+    if (line.trim()==="［＃RSVP区切り］"){
+      if (!cur) newCh(""); addPara({atoms:[],heading:false,rule:true}); continue;
+    }
     const code = line.trim().match(/^［＃RSVPコード:(.*)］$/);
     if (code){
       let text; try { text = decodeURIComponent(code[1]); } catch(e){ continue; }
       if (!cur) newCh("");
-      cur.paras.push({atoms:parseRuby(text,true),heading:false,code:true,targets:pendingTargets}); pendingTargets = [];
+      addPara({atoms:parseRuby(text,true),heading:false,code:true,targets:pendingTargets}); pendingTargets = [];
       continue;
     }
     const target = line.trim().match(/^［＃RSVP移動先:([a-z0-9-]+)］$/);
@@ -378,7 +411,7 @@ function parseDoc(raw, opt){
     if (page){
       if (opt.pdfPages && opt.pdfPages[page[1]]){
         if (!cur) newCh("");
-        if (cur.paras[cur.paras.length-1]?.page!==page[1]) cur.paras.push({atoms:[],heading:false,page:page[1]});
+        if (cur.paras[cur.paras.length-1]?.page!==page[1]) addPara({atoms:[],heading:false,page:page[1]});
       }
       continue;
     }
@@ -386,7 +419,7 @@ function parseDoc(raw, opt){
     if (image){
       if (opt.images && opt.images[image[1]]){
         if (!cur) newCh("");
-        cur.paras.push({atoms:[],heading:false,image:image[1],targets:pendingTargets}); pendingTargets = [];
+        addPara({atoms:[],heading:false,image:image[1],targets:pendingTargets}); pendingTargets = [];
       }
       continue;
     }
@@ -398,7 +431,7 @@ function parseDoc(raw, opt){
     if (m){ head = m[1]; level = m[2]; }
     m = line.match(/［＃(?:窓)?(大|中|小)見出し］(.*?)［＃(?:窓)?(?:大|中|小)見出し終わり］/);
     if (m){ head = m[2]; level = m[1]; }
-    line = line.replace(/［＃(?!RSVPリンク:|RSVPリンク終|RSVP移動先:)[^］]*］/g,"").replace(/^[\s　]+|[\s　]+$/g,"");
+    line = line.replace(/［＃(?!RSVPリンク:|RSVPリンク終|RSVP移動先:|RSVP書式:|RSVP書式終)[^］]*］/g,"").replace(/^[\s　]+|[\s　]+$/g,"");
     if (!line) continue;
     if (!head && !literal){
       m = line.match(/^(#{1,3})\s+(.+)$/);
@@ -413,7 +446,7 @@ function parseDoc(raw, opt){
     }
     if (!cur) newCh("");
     if (opt.paren) line = line.replace(/((?:[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF々〆ヶ]|[\uD840-\uD87F][\uDC00-\uDFFF])+)[（(]([\u3041-\u3096ー]{1,12})[）)]/g,"｜$1《$2》");
-    cur.paras.push({atoms: parseRuby(line), heading: !!head, targets:pendingTargets}); pendingTargets = [];
+    addPara({atoms: parseRuby(line), heading: !!head, targets:pendingTargets}); pendingTargets = [];
   }
   const docTitle = opt.title || title || "無題";
   chapters.forEach((c,i)=>{ if(!c.title) c.title = chapters.length===1 ? docTitle : (i===0?"序":"第"+(i+1)+"章"); });
@@ -421,13 +454,18 @@ function parseDoc(raw, opt){
 }
 function parseRuby(s, literal=false){
   const cps = Array.from(s), out = [];
-  let link = null, targets = [];
-  const add = a=>{ a.link = link; a.targets = targets; targets = []; out.push(a); };
+  let link = null, targets = [], formats = [];
+  const add = a=>{ a.link = link; a.targets = targets; a.format = formats.flat(); targets = []; out.push(a); };
   for (let i=0;i<cps.length;i++){
     const c = cps[i];
     if (c==="［" && cps[i+1]==="＃"){
       const end = cps.indexOf("］",i), token = cps.slice(i,end+1).join("");
       const m = token.match(/^［＃RSVP(リンク|移動先):([a-z0-9-]+)］$/);
+      const fmt = token.match(/^［＃RSVP書式:([a-z,]+)］$/);
+      if (fmt || token==="［＃RSVP書式終］"){
+        if (fmt) formats.push(fmt[1].split(",").filter(t=>INLINE_FORMATS.has(t))); else formats.pop();
+        i = end; continue;
+      }
       if (m || token==="［＃RSVPリンク終］"){
         if (m?.[1]==="移動先") targets.push(m[2]); else link = m ? m[2] : null;
         i = end; continue;
@@ -444,7 +482,7 @@ function parseRuby(s, literal=false){
         let j = out.length, base = "";
         while (j>0 && !out[j-1].r && isKanjiCh(out[j-1].t)) { j--; base = out[j].t + base; }
         const r = cps.slice(i+1,gt).join("");
-        if (base){ const first = out[j]; out.splice(j); const a = atom(base,r); a.link = first.link; a.targets = first.targets; out.push(a); }
+        if (base){ const first = out[j]; out.splice(j); const a = atom(base,r); a.link = first.link; a.targets = first.targets; a.format = first.format; out.push(a); }
         i = gt; continue;
       }
     }
@@ -635,7 +673,12 @@ function atomsHTML(atoms, withLabels, c, linkOutput=false){
   }
   return h;
 }
-function one(a){ return a.r ? `<ruby>${esc(a.t)}<rt>${esc(a.r)}</rt></ruby>` : esc(a.t); }
+const INLINE_FORMATS = new Set(["strong","em","code","sub","sup","u","s","mark"]);
+function one(a){
+  let h = a.r ? `<ruby>${esc(a.t)}<rt>${esc(a.r)}</rt></ruby>` : esc(a.t);
+  for (const t of [...new Set(a.format||[])].reverse()) if (INLINE_FORMATS.has(t)) h = `<${t}>${h}</${t}>`;
+  return h;
+}
 
 const word = $("word"), stageWrap = $("stageWrap");
 function renderWord(){
@@ -731,7 +774,8 @@ function renderHeader(){
 function renderAll(){ renderWord(); placeTicks(); renderMeta(); renderPreview(); renderReader(); }
 
 /* ============ 通常リーダー（速読と章・チャンク位置を共有） ============ */
-let readerDoc = null, readerKey = "", readerUserScroll = false, readerFrame = 0;
+let readerDoc = null, readerKey = "", readerUserScroll = false, readerFrame = 0, readerChapterStart = false;
+function beginReaderScroll(){ readerUserScroll = true; readerChapterStart = false; }
 let wordScrollDelta = 0, wordScrollTime = 0;
 function stepReaderScroll(delta){
   const now = performance.now();
@@ -748,10 +792,10 @@ function readerWordScrollEnabled(){
   return S.wordScroll || (S.shortWordScroll && scroller.scrollHeight<=scroller.clientHeight+1);
 }
 function bindReaderScrollInput(target){
-  target.addEventListener("pointerdown",()=>{ readerUserScroll = true; },{passive:true});
+  target.addEventListener("pointerdown",beginReaderScroll,{passive:true});
   target.addEventListener("wheel",e=>{
     if (S.mode!=="normal" || !readerWordScrollEnabled() || e.ctrlKey || Math.abs(e.deltaX)>Math.abs(e.deltaY)){
-      readerUserScroll = true; return;
+      beginReaderScroll(); return;
     }
     e.preventDefault();
     stepReaderScroll(e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?$("readerScroll").clientHeight:1));
@@ -762,7 +806,7 @@ function bindReaderScrollInput(target){
     if (!touch || e.touches.length!==1){ touch = null; return; }
     const point = e.touches[0], dy = touch.y-point.clientY, dx = touch.x-point.clientX;
     touch = {x:point.clientX,y:point.clientY};
-    if (S.mode!=="normal" || !readerWordScrollEnabled() || Math.abs(dx)>Math.abs(dy)){ readerUserScroll = true; return; }
+    if (S.mode!=="normal" || !readerWordScrollEnabled() || Math.abs(dx)>Math.abs(dy)){ beginReaderScroll(); return; }
     e.preventDefault(); stepReaderScroll(dy);
   },{passive:false});
   for (const type of ["touchend","touchcancel"]) target.addEventListener(type,()=>{ touch = null; wordScrollDelta = 0; },{passive:true});
@@ -780,6 +824,7 @@ function alignReaderPosition(){
   readerUserScroll = false;
   cancelAnimationFrame(readerFrame);
   const el = markReaderPosition();
+  if (readerChapterStart){ $("readerScroll").scrollTop = 0; return; }
   if (!el) return;
   const scroller = $("readerScroll"), r = readerTargetRect || el.getBoundingClientRect(), R = scroller.getBoundingClientRect();
   scroller.scrollTop += r.top - R.top - scroller.clientHeight*.25;
@@ -803,18 +848,31 @@ function renderReader(){
   if (readerDoc!==DOC || readerKey!==key){
     readerDoc = DOC; readerKey = key;
     let ci = 0;
+    let activeLayout = [];
+    const wrap = (p,html)=>{
+      const next = p.layout||[]; let common = 0;
+      while (common<activeLayout.length && common<next.length && activeLayout[common].id===next[common].id) common++;
+      let prefix = activeLayout.slice(common).reverse().map(x=>`</${x.tag}>`).join("");
+      for (const x of next.slice(common)){
+        let attrs = x.tag==="table" ? ' class="readerTable"' : x.note ? ' class="readerNote"' : "";
+        if (["td","th"].includes(x.tag)) for (const name of ["rowspan","colspan"]){ const n = Math.min(100,Math.max(1,Number(x[name])||1)); if(n>1) attrs += ` ${name}="${n}"`; }
+        prefix += `<${x.tag}${attrs}>`;
+      }
+      activeLayout = next; return prefix+html;
+    };
     body.innerHTML = DOC.chapters[ST.ch].paras.map((p,pi)=>{
+      if (p.rule) return wrap(p,"<hr>");
       if (p.image){
         const image = DOC.images[p.image], i = Math.min(ci,Math.max(0,chunks.length-1));
-        return `<figure data-media="${p.image}" data-i="${i}" tabindex="0" role="button" aria-label="画像の読書位置を指定"><img src="${esc(image.src)}" alt="${esc(image.alt||'図版')}"${image.width&&image.height?` width="${image.width}" height="${image.height}"`:""}>${image.alt?`<figcaption>${esc(image.alt)}</figcaption>`:""}</figure>`;
+        return wrap(p,`<figure${image.icon?' class="readerIcon"':""} data-media="${p.image}" data-i="${i}" tabindex="0" role="button" aria-label="画像の読書位置を指定"><img src="${esc(image.src)}" alt="${esc(image.alt||'図版')}"${image.width&&image.height?` width="${image.width}" height="${image.height}"`:""}>${image.alt&&!image.icon?`<figcaption>${esc(image.alt)}</figcaption>`:""}</figure>`);
       }
       const tag = p.code ? "pre" : "p";
       let h = `<${tag}${p.code?' class="codeBlock"':p.heading?' class="h"':""}>`;
       while (ci<chunks.length && chunks[ci].para===pi){
         h += `<span class="c" data-i="${ci}">${atomsHTML(chunks[ci].atoms,false,null,true)}</span>`; ci++;
       }
-      return h+`</${tag}>`;
-    }).join("");
+      return wrap(p,h+`</${tag}>`);
+    }).join("")+activeLayout.slice().reverse().map(x=>`</${x.tag}>`).join("");
     body.querySelectorAll("img").forEach(img=>img.addEventListener("load",()=>{ if (!readerUserScroll && S.mode==="normal") alignReaderPosition(); }));
   }
   body.style.fontSize = S.readerSize+"px";
@@ -824,6 +882,7 @@ function renderReader(){
 }
 function updateReaderPosition(){
   if (S.mode!=="normal" || !readerUserScroll || ST.finished) return;
+  readerChapterStart = false;
   const scroller = $("readerScroll");
   if (scroller.scrollTop<=1){
     const changed = ST.idx!==0 || ST.media!==null;
@@ -890,7 +949,7 @@ function followReaderLink(id){
       }
       const page = p.page && DOC.pdfPages?.[p.page];
       if (page?.html.includes(`data-reader-target="${link.target}"`)){
-        gotoChapter(ch); const info = pdfPageInfos.find(x=>x.id===p.page);
+        gotoChapter(ch); readerChapterStart = false; const info = pdfPageInfos.find(x=>x.id===p.page);
         if (info){ ST.idx = info.idx; ST.media = {id:info.id,idx:ST.idx}; alignReaderPosition(); renderMeta(); savePos();
           const jump = ()=>{ const el = info.el.querySelector("iframe").contentDocument?.querySelector(`[data-reader-target="${link.target}"]`);
             if (!el) return;
@@ -963,6 +1022,7 @@ function updatePdfLinks(d){
   }
 }
 function pdfSelectLine(info,line,point){
+  readerChapterStart = false;
   readerUserScroll = false; cancelAnimationFrame(readerFrame);
   let off = line?.textStart;
   if (line && point){
@@ -1008,7 +1068,7 @@ function loadPdfFrame(info){
     d.addEventListener("keydown",e=>{
       const scroller = $("readerScroll"), dir = ["ArrowUp","PageUp"].includes(e.key)?-1:1;
       if ([" ","ArrowUp","ArrowDown","PageUp","PageDown","Home","End"].includes(e.key)){
-        e.preventDefault(); readerUserScroll = true;
+        e.preventDefault(); beginReaderScroll();
         if (e.key==="Home") scroller.scrollTop = 0;
         else if (e.key==="End") scroller.scrollTop = scroller.scrollHeight;
         else scroller.scrollBy(0,(e.key==="ArrowUp"||e.key==="ArrowDown"?40:scroller.clientHeight*.85)*(e.key===" "&&e.shiftKey?-1:dir));
@@ -1164,6 +1224,7 @@ function pause(){
 }
 function toggle(){ ST.playing ? pause() : play(); }
 function seek(i){
+  readerChapterStart = false;
   const {chunks} = cur();
   const was = ST.playing; if (was){ clearTimeout(ST.timer); ST.sess.ms += performance.now()-ST.shownAt; }
   ST.idx = Math.max(0, Math.min(chunks.length-1, i));
@@ -1180,11 +1241,17 @@ function seekPara(dir){
   const i = chunks.findIndex(x=>x.para>=target);
   seek(i<0 ? (dir<0?0:chunks.length-1) : i);
 }
-function gotoChapter(ci, idx=0){
+function gotoChapter(ci, idx=null){
   if (ST.playing) pause();
   hideDone();
-  ST.ch = Math.max(0, Math.min(DOC.chapters.length-1, ci)); ST.idx = idx; ST.sess = {ms:0,chars:0};
+  ST.ch = Math.max(0, Math.min(DOC.chapters.length-1, ci)); ST.idx = idx ?? 0; ST.sess = {ms:0,chars:0};
   ST.media = null;
+  readerChapterStart = idx===null;
+  if (readerChapterStart){
+    const firstPara = cur().chunks[0]?.para ?? DOC.chapters[ST.ch].paras.length;
+    const firstMedia = DOC.chapters[ST.ch].paras.slice(0,firstPara).find(p=>p.image||p.page);
+    if (firstMedia) ST.media = {id:firstMedia.image||firstMedia.page,idx:0};
+  }
   $("chSel").value = ST.ch; recomputeTimes(); renderAll(); renderPreview(true); savePos();
 }
 
@@ -1284,6 +1351,7 @@ function toast(t){ const e=$("toast"); e.textContent=t; e.classList.add("on"); c
 
 /* ============ 読み込み ============ */
 function loadDoc(src, keepPos){
+  readerChapterStart = false;
   const parsed = parseDoc(src.text, {paren: src.paren!==false, title: src.title, images:src.images,pdfPages:src.pdfPages});
   if (!parsed.chapters.length) { toast("本文が見つかりませんでした"); return false; }
   if (ST.playing) pause();
@@ -1376,14 +1444,67 @@ function rubyText(el){
   const r = rts.join("");
   return r && base ? "｜"+base+"《"+r+"》" : base;
 }
+function prepareInlineFormats(body,css){
+  // 元のCSSから文字書式だけを評価する。画像やフォントなどの外部読み込みは行わない。
+  const props = ["font-weight","font-style","font-family","text-decoration","text-decoration-line","vertical-align"];
+  const declarations = style=>props.map(p=>{
+    const v = style.getPropertyValue(p);
+    return v && !/url\s*\(/i.test(v) ? `${p}:${v}${style.getPropertyPriority(p)?" !important":""};` : "";
+  }).join("");
+  const sheet = new CSSStyleSheet();
+  sheet.replaceSync(css.replace(/@import\s[^;]*;/gi,""));
+  const rules = list=>[...list].map(r=>{
+    if (r.selectorText) return `${r.selectorText}{${declarations(r.style)}}`;
+    if (r.cssRules && (!r.media || matchMedia(r.conditionText).matches)) return rules(r.cssRules);
+    return "";
+  }).join("\n");
+  const host = document.createElement("div"), root = host.attachShadow({mode:"closed"});
+  host.style.cssText = "position:fixed;left:-100000px;top:0;visibility:hidden;pointer-events:none";
+  const style = document.createElement("style"), clone = body.cloneNode(true), html = document.createElement("html");
+  for (const a of [...body.ownerDocument.documentElement.attributes]) if (["class","id","lang"].includes(a.name)) html.setAttribute(a.name,a.value);
+  style.textContent = rules(sheet.cssRules);
+  const originals = [body,...body.querySelectorAll("*")], copies = [clone,...clone.querySelectorAll("*")];
+  for (const el of copies){
+    const inline = declarations(el.style);
+    for (const a of [...el.attributes]) if (/^on/i.test(a.name) || ["src","srcset","href","xlink:href","srcdoc","action","formaction","style"].includes(a.name)) el.removeAttribute(a.name);
+    if (inline) el.setAttribute("style",inline);
+  }
+  clone.querySelectorAll("script,style,link,iframe,object,embed,audio,video,source").forEach(el=>el.remove());
+  html.append(clone); root.append(style,html); document.body.append(host);
+  try {
+    const computed = new Map(copies.filter(el=>clone.contains(el)).map(el=>[el,getComputedStyle(el)]));
+    originals.forEach((el,i)=>{
+      const c = copies[i], s = computed.get(c); if (!s) return;
+      const fmt = [];
+      if (Number(s.fontWeight)>=600 || /bold/.test(s.fontWeight)) fmt.push("strong");
+      if (/italic|oblique/.test(s.fontStyle)) fmt.push("em");
+      if (/monospace|courier|consolas|cascadia|menlo|monaco/i.test(s.fontFamily) || c.closest("code,tt,kbd,samp")) fmt.push("code");
+      for (let a=c;a && computed.has(a);a=a.parentElement){
+        const dec = computed.get(a).textDecorationLine;
+        if (dec.includes("underline")) fmt.push("u");
+        if (dec.includes("line-through")) fmt.push("s");
+      }
+      if (s.verticalAlign==="sub" || c.closest("sub")) fmt.push("sub");
+      if (s.verticalAlign==="super" || c.closest("sup")) fmt.push("sup");
+      if (c.closest("mark")) fmt.push("mark");
+      if (fmt.length) el.setAttribute("data-reader-format",[...new Set(fmt)].join(","));
+    });
+  } finally { host.remove(); }
+}
+function formattedText(el,text){
+  const fmt = el.getAttribute("data-reader-format");
+  if (!fmt || !text.trim()) return text;
+  // 改行で段落が分かれても書式の開始・終了を各行に残す。
+  return text.split("\n").map(s=>s.replace(/^(\s*)(.*?)(\s*)$/,(_,before,value,after)=>value ? `${before}［＃RSVP書式:${fmt}］${value}［＃RSVP書式終］${after}` : s)).join("\n");
+}
 function inlineText(el){
   let s = "";
   for (const n of el.childNodes){
-    if (n.nodeType===3) s += n.data.replace(/\s+/g," ");
+    if (n.nodeType===3) s += formattedText(el,n.data.replace(/\s+/g," "));
     else if (n.nodeType===1){
       const t = n.localName.toLowerCase();
       if (SKIP.has(t)) continue;
-      if (t==="ruby") s += rubyText(n);
+      if (t==="ruby") s += formattedText(n,rubyText(n));
       else if (t==="img"){ const a = (n.getAttribute("alt")||"").trim(); if (a && (Array.from(a).length===1 || /gaiji/i.test(n.getAttribute("class")||""))) s += a; }
       else if (t==="br") s += "\n";
       else s += inlineText(n);
@@ -1397,19 +1518,20 @@ const headLine = (txt)=>{ const plain = txt.replace(/［＃RSVP[^］]*］/g,"").
 function codeText(el){
   let text = "";
   for (const n of el.childNodes){
-    if (n.nodeType===3) text += n.data;
+    if (n.nodeType===3) text += formattedText(el,n.data);
     else if (n.nodeType===1 && !["script","style"].includes(n.localName.toLowerCase())) text += n.localName.toLowerCase()==="br" ? "\n" : codeText(n);
   }
   if (el.hasAttribute("data-reader-link")) text = `［＃RSVPリンク:${el.getAttribute("data-reader-link")}］${text}［＃RSVPリンク終］`;
   if (el.hasAttribute("data-reader-target")) text = `［＃RSVP移動先:${el.getAttribute("data-reader-target")}］`+text;
   return text;
 }
+let htmlLayoutId = 0;
 function htmlToLines(body, onId){
   const lines = []; let buf = "";
   const flush = ()=>{ for (const l of buf.split("\n")){ const t = l.replace(/^[ \t]+|[ \t]+$/g,""); if (t.replace(/[\s　]/g,"")) lines.push(t); } buf = ""; };
   const walk = el=>{
     for (const n of el.childNodes){
-      if (n.nodeType===3){ buf += n.data.replace(/\s+/g," "); continue; }
+      if (n.nodeType===3){ buf += formattedText(el,n.data.replace(/\s+/g," ")); continue; }
       if (n.nodeType!==1) continue;
       const target = n.getAttribute("data-reader-target");
       if (target){
@@ -1421,11 +1543,18 @@ function htmlToLines(body, onId){
       const t = n.localName.toLowerCase();
       if (n.hasAttribute("data-reader-image")){ flush(); lines.push(`［＃RSVP画像:${n.getAttribute("data-reader-image")}］`); continue; }
       if (SKIP.has(t)) continue;
+      if (t==="hr"){ flush(); lines.push("［＃RSVP区切り］"); continue; }
+      const note = t==="div" && /\b(tip|note|warning|caution|memo|important)\b/.test(n.getAttribute("class")||"");
+      if (note || ["table","thead","tbody","tfoot","tr","td","th"].includes(t)){
+        flush(); const item = {id:"layout-"+(htmlLayoutId++),tag:t,note};
+        if (["td","th"].includes(t)) for (const name of ["rowspan","colspan"]) if(n.hasAttribute(name)) item[name] = Number(n.getAttribute(name));
+        lines.push(`［＃RSVP構造:${encodeURIComponent(JSON.stringify(item))}］`); walk(n); flush(); lines.push("［＃RSVP構造終］"); continue;
+      }
       if (t==="pre"){
         flush(); lines.push(`［＃RSVPコード:${encodeURIComponent(codeText(n))}］`); continue;
       }
       if (n.hasAttribute("data-reader-link")){ buf += inlineText(n).replace(/^［＃RSVP移動先:[^］]+］/,""); continue; }
-      if (t==="ruby"){ buf += rubyText(n); continue; }
+      if (t==="ruby"){ buf += formattedText(n,rubyText(n)); continue; }
       if (t==="br"){ buf += "\n"; continue; }
       if (t==="img"){ const a = (n.getAttribute("alt")||"").trim(); if (a && (Array.from(a).length===1 || /gaiji/i.test(n.getAttribute("class")||""))) buf += a; continue; }
       if (/^h[1-6]$/.test(t)){
@@ -1659,6 +1788,19 @@ async function epubToText(buf){
   const isPdf = docs.some(x=>x.body.querySelector(".pf .t"));
   let P = null;
   const rawStyles = new Map();
+  if (!isPdf) for (const {it,d,body} of docs){
+    let css = "";
+    for (const link of d.querySelectorAll('link[rel="stylesheet"]')){
+      const href = link.getAttribute("href");
+      if (!href || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(href)) continue;
+      const path = resolve(it.href,href);
+      if (!rawStyles.has(path)) rawStyles.set(path,await read(path)||"");
+      const media = link.getAttribute("media");
+      if (!media || matchMedia(media).matches) css += rawStyles.get(path)+"\n";
+    }
+    css += [...d.querySelectorAll("style")].map(s=>s.textContent).join("\n");
+    prepareInlineFormats(body,css);
+  }
   if (isPdf){
     let css = "";
     for (const m of Object.values(man)) if (/css/.test(m.type)){
@@ -1715,7 +1857,7 @@ async function epubToText(buf){
       if (!src) continue;
       const id = "img-"+Object.keys(images).length;
       const width = Number(el.getAttribute("width")), height = Number(el.getAttribute("height"));
-      images[id] = {src,alt,width:width>0?width:0,height:height>0?height:0};
+      images[id] = {src,alt,width:width>0?width:0,height:height>0?height:0,icon:/\b(?:tip|note|warning|caution|memo)icon\b/i.test(el.getAttribute("class")||"")};
       el.setAttribute("data-reader-image",id);
     }
   }
@@ -1819,7 +1961,7 @@ function bindEvents(){
     if (link){ e.preventDefault(); followReaderLink(link.dataset.link); return; }
     if (window.getSelection()?.toString()) return;
     const el = e.target.closest(".c,figure[data-media]");
-    if (el?.dataset.media){ readerUserScroll = false; cancelAnimationFrame(readerFrame); ST.idx = +el.dataset.i; ST.media = {id:el.dataset.media,idx:ST.idx}; markReaderPosition(); renderMeta(); savePos(); }
+    if (el?.dataset.media){ readerChapterStart = false; readerUserScroll = false; cancelAnimationFrame(readerFrame); ST.idx = +el.dataset.i; ST.media = {id:el.dataset.media,idx:ST.idx}; markReaderPosition(); renderMeta(); savePos(); }
     else if (el) seek(+el.dataset.i);
   };
   $("readerBody").addEventListener("keydown",e=>{
@@ -1881,7 +2023,7 @@ function bindEvents(){
     const t = e.target; if (t && (t.tagName==="INPUT"&&t.type!=="range"&&t.type!=="checkbox" || t.tagName==="TEXTAREA" || t.tagName==="SELECT")) return;
     const k = e.key;
     if (S.mode==="normal" && [" ","ArrowUp","ArrowDown","PageUp","PageDown","Home","End"].includes(k)){
-      readerUserScroll = true;
+      beginReaderScroll();
       // 本文にフォーカスを移し、ブラウザー標準のページ送りを利用する。
       if (t.tagName!=="BUTTON" && t.tagName!=="INPUT") scroller.focus({preventScroll:true});
       return;
