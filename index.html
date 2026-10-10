@@ -44,6 +44,37 @@ header{display:flex;align-items:center;gap:14px;padding:10px 18px;border-bottom:
 .keys{color:var(--sub);font-size:12.5px;white-space:nowrap}
 .ghost{background:transparent;border:1px solid var(--line);border-radius:7px;padding:5px 11px;cursor:pointer}
 .ghost:hover{border-color:var(--sub)}
+.ghost:disabled{opacity:.45;cursor:default}
+#sMode{min-width:100px}
+#reader{position:absolute;inset:0;display:none;flex-direction:column}
+.normal #reader{display:flex}
+.normal #stage,.normal .tick,.normal #hint,.normal #preview{display:none!important}
+.normal #ctrl .row:first-child>:not(#btnReset):not(.readerControl),.normal #ctrl .row.two>:not(.readerColor){display:none}
+#ctrl .readerControl{display:none}
+.normal #ctrl .readerControl{display:flex}
+#readerScroll{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;scroll-behavior:auto;padding:28px 24px 40px}
+#readerBody{max-width:42em;margin:auto;font-family:var(--mincho);font-size:20px;line-height:2.2;overflow-wrap:anywhere}
+#readerBody p{margin:0 0 1.2em;white-space:pre-wrap}
+#readerBody p.h{font-weight:700;margin:0 0 1.5em;letter-spacing:.15em}
+#readerBody rt{font-size:.5em;color:var(--sub)}
+#readerBody .c{cursor:pointer;border-radius:3px}
+#readerBody .c:hover{background:color-mix(in srgb,var(--mark) 55%,transparent)}
+#readerBody .cur{background:var(--mark)}
+#readerBody figure{margin:1.5em 0;text-align:center}
+#readerBody figure img{display:block;max-width:100%;height:auto;margin:auto;background:#fff}
+#readerBody figure.cur{outline:2px solid var(--accent);outline-offset:4px;background:transparent}
+#readerBody figcaption{font-family:var(--sans);font-size:.7em;line-height:1.7;color:var(--sub);margin-top:.6em}
+#readerBody.pdfBook{max-width:none;overflow-wrap:normal;line-height:normal}
+.pdfPage{position:relative;margin:0 auto 24px;background:#fff;box-shadow:0 1px 5px #0002}
+.pdfPage iframe{display:block;border:0;width:100%;height:100%;background:#fff}
+.pdfPage.cur{outline:2px solid var(--accent);outline-offset:3px;background:#fff!important}
+.pdfPageLabel{position:absolute;inset:0;display:grid;place-items:center;color:#666;font:14px var(--sans);pointer-events:none}
+.pdfPage.loaded .pdfPageLabel{display:none}
+#readerFooter{position:relative;flex-shrink:0}
+.footerSwitch{display:none;position:absolute;right:18px;bottom:100%;z-index:2}
+.normal .footerSwitch{display:block}
+.normal.footerCollapsed #footerPanel{display:none}
+#btnFooter{height:24px;min-width:56px;padding:3px 9px;font-size:11px;border-radius:7px 7px 0 0;border-bottom:0;background:var(--panel);box-shadow:0 -1px 3px #0001}
 
 #stageWrap{flex:1;position:relative;min-height:140px;overflow:hidden}
 #stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;cursor:pointer;user-select:none;-webkit-user-select:none}
@@ -132,6 +163,7 @@ dialog::backdrop{background:rgba(0,0,0,.35)}
   .keys{display:none}
   #preview{margin:0 10px 8px;padding:10px 14px;font-size:15px}
   #bar{margin:0 12px} #meta{padding:6px 12px 0}
+  .footerSwitch{right:12px}
   #ctrl{padding:8px 12px 12px}
   .row{gap:8px 12px}
   input[type=range]{width:110px}
@@ -147,11 +179,15 @@ dialog::backdrop{background:rgba(0,0,0,.35)}
     <span class="ttl" id="hTitle"></span><span class="auth" id="hAuth"></span>
     <select id="chSel" aria-label="章を選ぶ" hidden></select>
     <span class="spacer"></span>
-    <span class="keys">Space 再生/停止 · ←→ 1文節 · Shift+←→ 段落 · ↑↓ 速度 · V 縦横</span>
+    <select id="sMode" aria-label="読書モード"><option value="rsvp">速読</option><option value="normal">通常</option></select>
+    <span class="keys" id="keys">Space 再生/停止 · ←→ 1文節 · Shift+←→ 段落 · ↑↓ 速度 · V 縦横</span>
     <button class="ghost" id="btnOpen">テキストを開く</button>
   </header>
 
   <div id="stageWrap">
+    <section id="reader" aria-label="通常リーダー">
+      <div id="readerScroll" tabindex="0" aria-label="本文"><article id="readerBody"></article></div>
+    </section>
     <div id="stage" role="button" aria-label="再生・停止">
       <div id="word"></div>
     </div>
@@ -162,12 +198,16 @@ dialog::backdrop{background:rgba(0,0,0,.35)}
 
   <div id="preview"><div id="legend"></div><div id="pvBody"></div></div>
 
+  <footer id="readerFooter">
   <div id="bar" title="クリックで移動"><div id="fill"></div></div>
+  <div id="footerPanel">
   <div id="meta"><span id="mPos"></span><span id="mAll"></span><span id="mRest"></span></div>
 
   <div id="ctrl">
     <div class="row">
       <button id="btnReset" title="章の先頭へ" aria-label="章の先頭へ"><svg width="14" height="12" viewBox="0 0 14 12"><rect x="0" y="0" width="2" height="12" fill="currentColor"/><path d="M8 0v12L2 6z M14 0v12L8 6z" fill="currentColor"/></svg></button>
+      <label class="grp readerControl"><span>文字</span><input type="range" id="sReaderSize" min="14" max="36" step="1"><span class="val px" id="vReaderSize"></span></label>
+      <button class="ghost readerControl" id="readerNext">次の章へ</button>
       <button id="btnPlay"><span id="pIco">▶</span><span id="pTxt">再生</span></button>
       <div class="grp"><span>速度</span><input type="range" id="sCpm" min="300" max="3000" step="50"><span class="val" id="vCpm"></span></div>
       <div class="grp"><span>まとめる</span><select id="sGroup">
@@ -178,7 +218,7 @@ dialog::backdrop{background:rgba(0,0,0,.35)}
       <label class="chk"><input type="checkbox" id="sPunct">句読点で間をとる</label>
     </div>
     <div class="row two">
-      <label class="chk"><input type="checkbox" id="sColor">名前を色分け</label>
+      <label class="chk readerColor"><input type="checkbox" id="sColor">名前を色分け</label>
       <div class="grp"><span>人物ラベル</span><select id="sLabel">
         <option value="0">表示しない</option><option value="1">章の最初1回</option><option value="3">章の最初3回</option><option value="999">毎回</option></select></div>
       <label class="chk"><input type="checkbox" id="sSlow">名前で少し長く</label>
@@ -186,6 +226,9 @@ dialog::backdrop{background:rgba(0,0,0,.35)}
       <label class="chk"><input type="checkbox" id="sGuide">注視点ガイド</label>
     </div>
   </div>
+  </div>
+  <div class="footerSwitch"><button class="ghost" id="btnFooter" aria-expanded="false" aria-controls="footerPanel" aria-label="操作パネルを開く" title="操作パネルを開く">▴ 操作パネル</button></div>
+  </footer>
 </div>
 
 <dialog id="dlg">
@@ -240,8 +283,25 @@ const LS = {
   get(k,d){try{const v=localStorage.getItem("rsvp:"+k);return v==null?d:JSON.parse(v)}catch(e){return d}},
   set(k,v){try{localStorage.setItem("rsvp:"+k,JSON.stringify(v));return true}catch(e){return false}}
 };
-const DEF = {cpm:1500,group:1,min:3,size:56,punct:true,color:true,label:3,slow:true,vert:false,guide:true};
+const DEF = {cpm:1500,group:1,min:3,size:56,punct:true,color:true,label:3,slow:true,vert:false,guide:true,mode:"rsvp",readerSize:20};
 const S = Object.assign({}, DEF, LS.get("settings",{}));
+let loadedSource = null, pendingImages = {}, pendingPdf = {}, fileReadVersion = 0;
+// 本文と画像は同じトランザクションで保存。設定・読書位置は従来どおり軽量な保存を使う。
+const BOOKS = {
+  open(){ return new Promise((resolve,reject)=>{
+    const r = indexedDB.open("rsvp-books",1);
+    r.onupgradeneeded = ()=>r.result.createObjectStore("books");
+    r.onsuccess = ()=>resolve(r.result); r.onerror = ()=>reject(r.error);
+  }); },
+  async get(){ const db = await this.open(); try { return await new Promise((resolve,reject)=>{
+    const r = db.transaction("books").objectStore("books").get("current");
+    r.onsuccess = ()=>resolve(r.result); r.onerror = ()=>reject(r.error);
+  }); } finally { db.close(); } },
+  async set(src){ const db = await this.open(); try { await new Promise((resolve,reject)=>{
+    const tx = db.transaction("books","readwrite"); tx.objectStore("books").put(src,"current");
+    tx.oncomplete = resolve; tx.onerror = tx.onabort = ()=>reject(tx.error);
+  }); } finally { db.close(); } }
+};
 
 /* ============ 文字種 ============ */
 const RE_K = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF々〆〇ヶ仝\u{20000}-\u{3134F}]/u;
@@ -296,6 +356,22 @@ function parseDoc(raw, opt){
   let cur = null;
   const newCh = t => { cur = {title:t, paras:[]}; chapters.push(cur); };
   for (let line of lines){
+    const page = line.trim().match(/^［＃RSVPページ:([a-z0-9-]+)］$/);
+    if (page){
+      if (opt.pdfPages && opt.pdfPages[page[1]]){
+        if (!cur) newCh("");
+        if (cur.paras[cur.paras.length-1]?.page!==page[1]) cur.paras.push({atoms:[],heading:false,page:page[1]});
+      }
+      continue;
+    }
+    const image = line.trim().match(/^［＃RSVP画像:([a-z0-9-]+)］$/);
+    if (image){
+      if (opt.images && opt.images[image[1]]){
+        if (!cur) newCh("");
+        cur.paras.push({atoms:[],heading:false,image:image[1]});
+      }
+      continue;
+    }
     line = line.replace(/／″＼/g,"〴〵").replace(/／＼/g,"〳〵");
     line = decodeGaiji(line);
     let head = null, level = "", force = false;
@@ -495,7 +571,7 @@ function recomputeTimes(){
 }
 
 /* ============ 状態 ============ */
-const ST = {ch:0, idx:0, playing:false, timer:0, shownAt:0, ramp:0, sess:{ms:0,chars:0}, rest:0, restT:0, finished:false};
+const ST = {ch:0, idx:0, media:null, footerExpanded:false, playing:false, timer:0, shownAt:0, ramp:0, sess:{ms:0,chars:0}, rest:0, restT:0, finished:false};
 const cur = () => buildChunks(ST.ch);
 const docKey = () => "pos:"+(DOC.title||"")+":"+DOC.chapters.length+":"+DOC.chapters.reduce((n,c)=>n+c.paras.length,0);
 
@@ -563,7 +639,7 @@ function renderMeta(){
   if (DOC.chapters.length>1){
     let before = 0, all = 0;
     DOC.chapters.forEach((_,i)=>{ const t = buildChunks(i).total; if (i<ST.ch) before += t; all += t; });
-    $("mAll").textContent = `${circ(ST.ch)} ${DOC.chapters.length}章中 ・ 全体 ${Math.floor((before+(c?c.start:total))/all*100)}%`;
+    $("mAll").textContent = `${circ(ST.ch)} ${DOC.chapters.length}章中 ・ 全体 ${all?Math.floor((before+(c?c.start:total))/all*100):0}%`;
   } else $("mAll").textContent = "";
 }
 let pvRange = [0,0];
@@ -575,10 +651,10 @@ function renderPreview(force){
   if (force || p0!==pvRange[0] || p1!==pvRange[1] || !$("pvBody").firstChild){
     pvRange = [p0,p1];
     let h = p0>0 ? `<div class="gap">…</div>` : "";
-    let ci = chunks.findIndex(x=>x.para===p0);
+    let ci = chunks.findIndex(x=>x.para>=p0);
     for (let p=p0;p<=p1;p++){
       h += `<p${ch.paras[p].heading?' class="h"':""}>`;
-      while (ci<chunks.length && chunks[ci].para===p){ h += `<span class="c" data-i="${ci}">${atomsHTML(chunks[ci].atoms,false)}</span>`; ci++; }
+      while (ci>=0 && ci<chunks.length && chunks[ci].para===p){ h += `<span class="c" data-i="${ci}">${atomsHTML(chunks[ci].atoms,false)}</span>`; ci++; }
       h += "</p>";
     }
     if (p1<ch.paras.length-1) h += `<div class="gap">…</div>`;
@@ -603,7 +679,291 @@ function renderHeader(){
     sel.value = ST.ch;
   } else sel.hidden = true;
 }
-function renderAll(){ renderWord(); placeTicks(); renderMeta(); renderPreview(); }
+function renderAll(){ renderWord(); placeTicks(); renderMeta(); renderPreview(); renderReader(); }
+
+/* ============ 通常リーダー（速読と章・チャンク位置を共有） ============ */
+let readerDoc = null, readerKey = "", readerUserScroll = false, readerFrame = 0;
+function markReaderPosition(){
+  if (DOC.pdfPages) return markPdfPosition();
+  readerTargetRect = null;
+  const body = $("readerBody");
+  body.querySelectorAll(".cur").forEach(el=>el.classList.remove("cur"));
+  const el = ST.media && ST.media.idx===ST.idx ? body.querySelector(`[data-media="${ST.media.id}"]`) : body.querySelector(`.c[data-i="${ST.idx}"]`);
+  if (el) el.classList.add("cur");
+  return el;
+}
+function alignReaderPosition(){
+  readerUserScroll = false;
+  cancelAnimationFrame(readerFrame);
+  const el = markReaderPosition();
+  if (!el) return;
+  const scroller = $("readerScroll"), r = readerTargetRect || el.getBoundingClientRect(), R = scroller.getBoundingClientRect();
+  scroller.scrollTop += r.top - R.top - scroller.clientHeight*.25;
+}
+function renderReader(){
+  updateReaderFooter();
+  $("sColor").parentElement.style.display = S.mode==="normal" && DOC.pdfPages ? "none" : "";
+  if (S.mode!=="normal") return;
+  $("readerBody").classList.toggle("pdfBook",!!DOC.pdfPages);
+  $("sReaderSize").parentElement.firstChild.textContent = DOC.pdfPages ? "拡大 " : "文字 ";
+  $("vReaderSize").textContent = DOC.pdfPages ? Math.round(S.readerSize/20*100)+"%" : S.readerSize+"px";
+  if (DOC.pdfPages) return renderPdfReader();
+  if (pdfObserver){ pdfObserver.disconnect(); pdfObserver = null; }
+  if (pdfAssetDoc && pdfAssetDoc!==DOC){
+    for (const url of Object.values(pdfURLs)) URL.revokeObjectURL(url);
+    pdfURLs = {}; pdfAssetDoc = null; pdfPageInfos = [];
+  }
+  const key = [ST.ch,S.group,S.min,S.color].join("|");
+  const body = $("readerBody"), {chunks} = cur();
+  body.style.width = "";
+  if (readerDoc!==DOC || readerKey!==key){
+    readerDoc = DOC; readerKey = key;
+    let ci = 0;
+    body.innerHTML = DOC.chapters[ST.ch].paras.map((p,pi)=>{
+      if (p.image){
+        const image = DOC.images[p.image], i = Math.min(ci,Math.max(0,chunks.length-1));
+        return `<figure data-media="${p.image}" data-i="${i}" tabindex="0" role="button" aria-label="画像の読書位置を指定"><img src="${esc(image.src)}" alt="${esc(image.alt||'図版')}"${image.width&&image.height?` width="${image.width}" height="${image.height}"`:""}>${image.alt?`<figcaption>${esc(image.alt)}</figcaption>`:""}</figure>`;
+      }
+      let h = `<p${p.heading?' class="h"':""}>`;
+      while (ci<chunks.length && chunks[ci].para===pi){
+        h += `<span class="c" data-i="${ci}">${atomsHTML(chunks[ci].atoms,false)}</span>`; ci++;
+      }
+      return h+"</p>";
+    }).join("");
+    body.querySelectorAll("img").forEach(img=>img.addEventListener("load",()=>{ if (!readerUserScroll && S.mode==="normal") alignReaderPosition(); }));
+  }
+  body.style.fontSize = S.readerSize+"px";
+  $("readerNext").disabled = ST.ch>=DOC.chapters.length-1;
+  alignReaderPosition();
+}
+function updateReaderPosition(){
+  if (S.mode!=="normal" || !readerUserScroll || ST.finished) return;
+  if (DOC.pdfPages) return updatePdfPosition();
+  const scroller = $("readerScroll"), R = scroller.getBoundingClientRect();
+  const line = R.top + scroller.clientHeight*.25;
+  // 折り返された文節も各行の矩形で判定し、読み進める目安を上から1/4に置く。
+  let target = null;
+  for (const el of $("readerBody").querySelectorAll(".c,figure[data-media]")){
+    if (Array.from(el.getClientRects()).some(r=>r.bottom>line && r.top<R.bottom)) { target = el; break; }
+  }
+  if (!target) return;
+  const i = +target.dataset.i;
+  const id = target.dataset.media || null;
+  if (ST.idx!==i || (ST.media?.id||null)!==id){ ST.idx = i; ST.media = id ? {id,idx:i} : null; markReaderPosition(); renderMeta(); savePos(); }
+}
+function setReaderMode(mode){
+  updateReaderPosition();
+  pause();
+  if (ST.finished){ hideDone(); ST.idx = Math.max(0,cur().chunks.length-1); }
+  S.mode = mode==="normal" ? "normal" : "rsvp";
+  if (S.mode==="normal") ST.footerExpanded = false;
+  $("sMode").value = S.mode;
+  $("app").classList.toggle("normal", S.mode==="normal");
+  $("keys").textContent = S.mode==="normal" ? "←→ 1文節 · Shift+←→ 段落" : "Space 再生/停止 · ←→ 1文節 · Shift+←→ 段落 · ↑↓ 速度 · V 縦横";
+  LS.set("settings",S); renderAll(); savePos();
+}
+function updateReaderFooter(){
+  const expanded = S.mode!=="normal" || ST.footerExpanded;
+  $("app").classList.toggle("footerCollapsed",!expanded);
+  $("btnFooter").setAttribute("aria-expanded",String(expanded));
+  const label = expanded ? "操作パネルを閉じる" : "操作パネルを開く";
+  $("btnFooter").textContent = expanded ? "▾ 操作パネル" : "▴ 操作パネル";
+  $("btnFooter").setAttribute("aria-label",label);
+  $("btnFooter").title = label;
+}
+
+/* PDF変換EPUBは元のHTML・CSS・フォントを隔離したページで表示する。 */
+let readerTargetRect = null, pdfObserver = null, pdfAssetDoc = null, pdfURLs = {}, pdfPageInfos = [], pdfChunkTexts = [];
+function pdfIdxAtText(off){
+  const i = pdfChunkTexts.findIndex(x=>x.end>off);
+  return i<0 ? Math.max(0,pdfChunkTexts.length-1) : i;
+}
+function pdfLineCharacters(el,line){
+  if (line.characters?.el===el) return line.characters.items;
+  const d = el.ownerDocument, walker = d.createTreeWalker(el,NodeFilter.SHOW_TEXT), raw = [];
+  while (walker.nextNode()){
+    const node = walker.currentNode; let off = 0;
+    for (const ch of node.textContent){ raw.push({node,from:off,to:off+ch.length,ch}); off += ch.length; }
+  }
+  const normalize = s=>s.replace(/[\r\n\t]/g,"");
+  const rawText = raw.map(x=>x.ch).join("");
+  const decoded = normalize(decodePUA(rawText));
+  const usePUA = decoded.includes(line.text) && !normalize(rawText).includes(line.text);
+  const items = []; let text = "";
+  for (const x of raw){
+    const ch = normalize(usePUA ? decodePUA(x.ch) : x.ch);
+    for (let i=0;i<ch.length;i++) items.push(x);
+    text += ch;
+  }
+  const start = text.indexOf(line.text);
+  line.characters = {el,items:start<0?[]:items.slice(start,start+line.text.length)};
+  return line.characters.items;
+}
+function pdfLineRange(el,line,from,to){
+  const items = pdfLineCharacters(el,line), a = items[from], b = items[to-1];
+  if (!a || !b) return null;
+  const range = el.ownerDocument.createRange(); range.setStart(a.node,a.from); range.setEnd(b.node,b.to);
+  return range;
+}
+function pdfResourceURLs(){
+  if (pdfAssetDoc===DOC) return;
+  for (const url of Object.values(pdfURLs)) URL.revokeObjectURL(url);
+  pdfURLs = {}; pdfAssetDoc = DOC;
+  for (const [id,src] of Object.entries(DOC.pdfAssets||{})){
+    const comma = src.indexOf(","), head = src.slice(0,comma);
+    const bytes = head.includes(";base64") ? Uint8Array.from(atob(src.slice(comma+1)),c=>c.charCodeAt(0)) : new TextEncoder().encode(decodeURIComponent(src.slice(comma+1)));
+    pdfURLs[id] = URL.createObjectURL(new Blob([bytes],{type:head.slice(5).split(";")[0]}));
+  }
+}
+function pdfResolveAssets(s){ return s.replace(/rsvp-asset:([a-z0-9-]+)/g,(m,id)=>pdfURLs[id]||""); }
+function pdfSelectLine(info,line,point){
+  readerUserScroll = false; cancelAnimationFrame(readerFrame);
+  let off = line?.textStart;
+  if (line && point){
+    const d = info.el.querySelector("iframe").contentDocument;
+    const caret = d.caretPositionFromPoint?.(point.clientX,point.clientY);
+    const range = !caret && d.caretRangeFromPoint?.(point.clientX,point.clientY);
+    const node = caret?.offsetNode || range?.startContainer, offset = caret?.offset ?? range?.startOffset;
+    const el = d.querySelector(`[data-reader-line="${line.id}"]`);
+    if (node && el.contains(node)){
+      const items = pdfLineCharacters(el,line); let i = items.findIndex(x=>x.node===node && x.to>offset);
+      if (i<0) i = items.findLastIndex(x=>x.node===node && x.to<=offset);
+      if (i>=0) off += i;
+    }
+  }
+  ST.idx = line ? pdfIdxAtText(off) : info.idx;
+  ST.media = {id:info.id,line:line?.id||null,idx:ST.idx};
+  markReaderPosition(); renderMeta(); savePos();
+}
+function loadPdfFrame(info){
+  const frame = info.el.querySelector("iframe"); if (frame.dataset.started) return;
+  frame.dataset.started = "true";
+  const page = DOC.pdfPages[info.id], css = pdfResolveAssets(DOC.pdfStyles[page.style]||"").replace(/</g,"\\3c ");
+  const html = pdfResolveAssets(page.html);
+  frame.srcdoc = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src blob: data:; font-src blob: data:; base-uri 'none'; form-action 'none'"><style>${css}\nhtml,body{margin:0!important;padding:0!important;overflow:hidden!important;background:white!important}#sbo-rt-content{position:absolute;left:0;top:0;transform-origin:0 0}#sbo-rt-content .pf{margin:0!important;box-shadow:none!important}#sbo-rt-content .t.reader-current{background:rgba(241,226,162,.5)}#pdf-main,.pdf-page{margin:0!important;padding:0!important;position:static!important}.pi{display:none!important}</style></head><body><div id="sbo-rt-content" style="width:${page.width}px;transform:scale(${info.scale})"><div id="pdf-main"><div class="pdf-page">${html}</div></div></div></body></html>`;
+  frame.onload = async ()=>{
+    if (!frame.isConnected) return;
+    const d = frame.contentDocument; if (!d) return;
+    await d.fonts.ready;
+    if (!frame.isConnected) return;
+    info.el.classList.add("loaded");
+    d.addEventListener("click",e=>{
+      if (d.getSelection()?.toString()) return;
+      const el = e.target.closest("[data-reader-line]");
+      const line = info.lines.find(x=>x.id===el?.dataset.readerLine);
+      if (line || e.target.closest(".pf")) pdfSelectLine(info,line,e);
+    });
+    for (const type of ["wheel","touchmove","pointerdown"]) d.addEventListener(type,()=>{ readerUserScroll = true; },{passive:true});
+    d.addEventListener("keydown",e=>{
+      const scroller = $("readerScroll"), dir = ["ArrowUp","PageUp"].includes(e.key)?-1:1;
+      if ([" ","ArrowUp","ArrowDown","PageUp","PageDown","Home","End"].includes(e.key)){
+        e.preventDefault(); readerUserScroll = true;
+        if (e.key==="Home") scroller.scrollTop = 0;
+        else if (e.key==="End") scroller.scrollTop = scroller.scrollHeight;
+        else scroller.scrollBy(0,(e.key==="ArrowUp"||e.key==="ArrowDown"?40:scroller.clientHeight*.85)*(e.key===" "&&e.shiftKey?-1:dir));
+      } else if (e.key==="ArrowLeft"||e.key==="ArrowRight"){
+        e.preventDefault(); const n = e.key==="ArrowLeft"?-1:1;
+        e.shiftKey ? seekPara(n) : seek(ST.idx+n);
+      }
+    });
+    if (S.mode==="normal"){
+      if (readerUserScroll) updateReaderPosition();
+      else alignReaderPosition();
+    }
+  };
+}
+function renderPdfReader(){
+  pdfResourceURLs();
+  const body = $("readerBody"), {chunks} = cur(), key = [ST.ch,S.group,S.min,"pdf"].join("|");
+  if (readerDoc!==DOC || readerKey!==key){
+    readerDoc = DOC; readerKey = key;
+    if (pdfObserver) pdfObserver.disconnect();
+    body.innerHTML = ""; pdfPageInfos = [];
+    const plain = chunks.map(c=>c.atoms.map(a=>a.t).join("")).join("");
+    // 読書進捗の字数は空白を除くため、元ページとの対応には別の文字列位置を使う。
+    let textOffset = 0;
+    pdfChunkTexts = chunks.map(c=>{ const start = textOffset; textOffset += c.atoms.map(a=>a.t).join("").length; return {start,end:textOffset}; });
+    const paras = DOC.chapters[ST.ch].paras;
+    for (let pi=0;pi<paras.length;pi++){
+      const id = paras[pi].page; if (!id || pdfPageInfos.some(x=>x.id===id)) continue;
+      const page = DOC.pdfPages[id], idx = chunks.findIndex(c=>c.para>pi);
+      const next = paras.findIndex((p,i)=>i>pi && p.page), endChunk = next<0 ? null : chunks.find(c=>c.para>next);
+      const start = idx<0 ? cur().total : chunks[idx].start, end = endChunk?.start ?? cur().total;
+      const nextIdx = endChunk ? chunks.indexOf(endChunk) : chunks.length;
+      let cursor = idx<0 ? plain.length : pdfChunkTexts[idx].start, limit = pdfChunkTexts[nextIdx]?.start ?? plain.length; const lines = [];
+      for (const line of page.lines){
+        if (!line.text) continue;
+        const off = plain.indexOf(line.text,cursor);
+        if (off>=cursor && off<limit){
+          lines.push({id:line.id,text:line.text,textStart:off,textEnd:off+line.text.length}); cursor = off+line.text.length;
+        }
+      }
+      const el = document.createElement("section"); el.className = "pdfPage"; el.dataset.media = id;
+      el.innerHTML = `<div class="pdfPageLabel">ページ ${page.number}</div><iframe sandbox="allow-same-origin" title="ページ ${page.number}" scrolling="no"></iframe>`;
+      const info = {id,el,lines,start,end,idx:idx<0?Math.max(0,chunks.length-1):idx,scale:1};
+      pdfPageInfos.push(info); body.append(el);
+    }
+    pdfObserver = new IntersectionObserver(entries=>{
+      for (const entry of entries) if (entry.isIntersecting){ const info = pdfPageInfos.find(x=>x.el===entry.target); if (info) loadPdfFrame(info); }
+    },{root:$("readerScroll"),rootMargin:"700px"});
+    pdfPageInfos.forEach(info=>pdfObserver.observe(info.el));
+  }
+  const available = Math.max(180,$("readerScroll").clientWidth-48), width = Math.min(840,available)*S.readerSize/20;
+  body.style.width = width+"px"; body.style.fontSize = "20px";
+  for (const info of pdfPageInfos){
+    const page = DOC.pdfPages[info.id]; info.scale = width/page.width;
+    info.el.style.width = width+"px"; info.el.style.height = page.height*info.scale+"px";
+    const sheet = info.el.querySelector("iframe").contentDocument?.getElementById("sbo-rt-content");
+    if (sheet) sheet.style.transform = `scale(${info.scale})`;
+  }
+  $("readerNext").disabled = ST.ch>=DOC.chapters.length-1;
+  alignReaderPosition();
+}
+function markPdfPosition(){
+  readerTargetRect = null;
+  const off = cur().chunks[ST.idx]?.start ?? cur().total;
+  const text = pdfChunkTexts[ST.idx];
+  const media = ST.media?.idx===ST.idx ? ST.media : null;
+  const info = (media && pdfPageInfos.find(x=>x.id===media.id)) || pdfPageInfos.find(x=>off>=x.start && off<x.end) || pdfPageInfos[pdfPageInfos.length-1];
+  for (const x of pdfPageInfos){
+    x.el.classList.remove("cur");
+    x.el.querySelector("iframe").contentDocument?.querySelectorAll(".reader-highlight").forEach(el=>el.remove());
+  }
+  if (!info) return null;
+  info.el.classList.add("cur"); loadPdfFrame(info);
+  const frame = info.el.querySelector("iframe"), d = frame.contentDocument;
+  if (text && d){
+    for (const line of info.lines){
+      const from = Math.max(text.start,line.textStart)-line.textStart, to = Math.min(text.end,line.textEnd)-line.textStart;
+      if (from>=to) continue;
+      const el = d.querySelector(`[data-reader-line="${line.id}"]`); if (!el) continue;
+      const range = pdfLineRange(el,line,from,to); if (!range) continue;
+      for (const r of range.getClientRects()){
+        if (!r.width || !r.height) continue;
+        const mark = d.createElement("div"); mark.className = "reader-highlight";
+        mark.style.cssText = `position:absolute;pointer-events:none;z-index:2147483647;background:rgba(241,226,162,.5);left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px`;
+        d.body.append(mark);
+        if (!readerTargetRect){ const R = frame.getBoundingClientRect(); readerTargetRect = {top:R.top+r.top,bottom:R.top+r.bottom}; }
+      }
+    }
+  }
+  return info.el;
+}
+function updatePdfPosition(){
+  const R = $("readerScroll").getBoundingClientRect(), y = R.top+$("readerScroll").clientHeight*.25;
+  const info = pdfPageInfos.find(x=>x.el.getBoundingClientRect().bottom>y && x.el.getBoundingClientRect().top<R.bottom);
+  if (!info) return;
+  // 読み込み中のページでは行の座標が未確定なので、現在位置を保つ。
+  // フォントの読み込み完了後に、現在のスクロール位置から再判定する。
+  if (!info.el.classList.contains("loaded")){ loadPdfFrame(info); return; }
+  const frame = info.el.querySelector("iframe"), d = frame.contentDocument, top = frame.getBoundingClientRect().top;
+  // ページ下部の余白では最後の行を選び、ページ先頭へ戻さない。
+  const line = info.lines.find(x=>{ const el = d?.querySelector(`[data-reader-line="${x.id}"]`); return el && el.getBoundingClientRect().bottom+top>y; }) || info.lines[info.lines.length-1];
+  const i = line ? pdfIdxAtText(line.textStart) : info.idx;
+  if (ST.idx!==i || ST.media?.id!==info.id || ST.media?.line!==(line?.id||null)){
+    ST.idx = i; ST.media = {id:info.id,line:line?.id||null,idx:i}; markReaderPosition(); renderMeta(); savePos();
+  }
+}
 
 /* ============ 再生制御 ============ */
 let wakeLock = null;
@@ -622,6 +982,7 @@ function setPlaying(on){
   requestAnimationFrame(()=>renderWord());
 }
 function play(){
+  if (S.mode==="normal") return;
   if (ST.finished) { hideDone(); }
   const {chunks} = cur();
   if (ST.idx>=chunks.length) ST.idx = 0;
@@ -652,6 +1013,7 @@ function seek(i){
   const {chunks} = cur();
   const was = ST.playing; if (was){ clearTimeout(ST.timer); ST.sess.ms += performance.now()-ST.shownAt; }
   ST.idx = Math.max(0, Math.min(chunks.length-1, i));
+  ST.media = null;
   if (ST.finished) hideDone();
   if (was){ ST.ramp = 1; step(); } else { renderAll(); savePos(); }
   $("hint").style.display = "none";
@@ -660,13 +1022,15 @@ function seekPara(dir){
   const {chunks} = cur(); const c = chunks[ST.idx]; if (!c) return;
   let target = c.para + dir;
   if (dir<0 && chunks[ST.idx-1] && chunks[ST.idx-1].para===c.para) target = c.para; // 段落の頭へ
-  const i = chunks.findIndex(x=>x.para===target);
+  if (dir<0){ while (target>=0 && !chunks.some(x=>x.para===target)) target--; }
+  const i = chunks.findIndex(x=>x.para>=target);
   seek(i<0 ? (dir<0?0:chunks.length-1) : i);
 }
 function gotoChapter(ci, idx=0){
   if (ST.playing) pause();
   hideDone();
   ST.ch = Math.max(0, Math.min(DOC.chapters.length-1, ci)); ST.idx = idx; ST.sess = {ms:0,chars:0};
+  ST.media = null;
   $("chSel").value = ST.ch; recomputeTimes(); renderAll(); renderPreview(true); savePos();
 }
 
@@ -706,7 +1070,7 @@ function hideDone(){ ST.finished = false; $("done").classList.remove("on"); $("a
 /* ============ 位置保存 ============ */
 function savePos(atEnd){
   const c = cur().chunks[ST.idx];
-  LS.set(docKey(), {ch:ST.ch, off: atEnd ? 0 : (c?c.start:0), chNext: atEnd && ST.ch<DOC.chapters.length-1});
+  LS.set(docKey(), {ch:ST.ch, off: atEnd ? 0 : (c?c.start:0), media:!atEnd && ST.media?.idx===ST.idx ? ST.media.id : null, line:ST.media?.line||null, chNext: atEnd && ST.ch<DOC.chapters.length-1});
 }
 function idxAtOffset(off){ const {chunks} = cur(); let i = 0; while (i+1<chunks.length && chunks[i+1].start<=off) i++; return i; }
 
@@ -715,11 +1079,18 @@ function bindSettings(){
   const set = (k,v,opt={})=>{
     const off = (cur().chunks[ST.idx]||{start:0}).start;
     S[k] = v; LS.set("settings", S);
-    if (opt.reseg){ ST.idx = idxAtOffset(off); }
+    if (opt.reseg){
+      ST.idx = idxAtOffset(off);
+      if (ST.media && !DOC.pdfPages){
+        const pi = DOC.chapters[ST.ch].paras.findIndex(p=>p.image===ST.media.id);
+        const i = cur().chunks.findIndex(c=>c.para>=pi);
+        ST.idx = i<0 ? Math.max(0,cur().chunks.length-1) : i; ST.media.idx = ST.idx;
+      }
+    }
     recomputeTimes();
     if (opt.layout) $("app").classList.toggle("vert", S.vert);
     if (opt.legend) renderLegend();
-    renderWord(); placeTicks(); renderMeta(); renderPreview(true);
+    renderWord(); placeTicks(); renderMeta(); renderPreview(true); renderReader();
   };
   const r = (id,k,vid,fmtv)=>{ const e=$(id); e.value=S[k]; $(vid).textContent=fmtv(S[k]); e.oninput=()=>{ $(vid).textContent=fmtv(+e.value); set(k,+e.value); }; };
   r("sCpm","cpm","vCpm",v=>v+"字/分");
@@ -729,6 +1100,15 @@ function bindSettings(){
   const cb = (id,k,opt)=>{ const e=$(id); e.checked=!!S[k]; e.onchange=()=>set(k,e.checked,opt||{}); };
   cb("sPunct","punct"); cb("sColor","color",{legend:true}); cb("sSlow","slow"); cb("sVert","vert",{layout:true}); cb("sGuide","guide");
   $("app").classList.toggle("vert", S.vert);
+  S.mode = S.mode==="normal" ? "normal" : "rsvp";
+  $("sMode").value = S.mode;
+  $("app").classList.toggle("normal", S.mode==="normal");
+  $("sReaderSize").value = S.readerSize;
+  $("vReaderSize").textContent = S.readerSize+"px";
+  $("sReaderSize").oninput = e=>{
+    S.readerSize = +e.target.value; $("vReaderSize").textContent = S.readerSize+"px";
+    LS.set("settings",S); renderReader();
+  };
 }
 function bumpSpeed(d){
   S.cpm = Math.max(300, Math.min(3000, S.cpm+d)); LS.set("settings",S);
@@ -740,17 +1120,20 @@ function toast(t){ const e=$("toast"); e.textContent=t; e.classList.add("on"); c
 
 /* ============ 読み込み ============ */
 function loadDoc(src, keepPos){
-  const parsed = parseDoc(src.text, {paren: src.paren!==false, title: src.title});
+  const parsed = parseDoc(src.text, {paren: src.paren!==false, title: src.title, images:src.images,pdfPages:src.pdfPages});
   if (!parsed.chapters.length) { toast("本文が見つかりませんでした"); return false; }
+  if (ST.playing) pause();
   const chars = parseChars(src.chars||"");
   let occ = 0;
   for (const ch of parsed.chapters) for (const p of ch.paras) occ = markNames(p.atoms, chars, occ);
-  DOC = {title: src.title || parsed.title || "無題", author: src.author || parsed.author || "", chars, chapters: parsed.chapters};
+  loadedSource = src;
+  DOC = {title: src.title || parsed.title || "無題", author: src.author || parsed.author || "", chars, images:src.images||{}, pdfPages:src.pdfPages,pdfStyles:src.pdfStyles,pdfAssets:src.pdfAssets,chapters: parsed.chapters};
   CH_CACHE.clear();
-  ST.ch = 0; ST.idx = 0; ST.sess = {ms:0,chars:0};
+  ST.ch = 0; ST.idx = 0; ST.media = null; ST.footerExpanded = false; ST.sess = {ms:0,chars:0};
   if (keepPos){
     const p = LS.get(docKey(), null);
     if (p && p.ch < DOC.chapters.length){ ST.ch = p.chNext ? p.ch+1 : p.ch; ST.idx = idxAtOffset(p.off||0); }
+    if (p?.media && DOC.chapters[ST.ch].paras.some(x=>x.image===p.media||x.page===p.media)) ST.media = {id:p.media,line:p.line,idx:ST.idx};
   }
   hideDone(); recomputeTimes(); renderHeader(); renderLegend(); renderAll(); renderPreview(true);
   setPlaying(false);
@@ -758,7 +1141,10 @@ function loadDoc(src, keepPos){
 }
 
 function openDialog(){
-  const src = LS.get("doc", null) || SAMPLE;
+  const src = loadedSource || SAMPLE;
+  pendingImages = src.images || {}; fileReadVersion++;
+  pendingPdf = {pdfPages:src.pdfPages,pdfStyles:src.pdfStyles,pdfAssets:src.pdfAssets};
+  $("inLoad").disabled = false;
   $("inText").value = src === SAMPLE ? "" : src.text;
   $("inTitle").value = src === SAMPLE ? "" : (src.title||"");
   $("inAuthor").value = src === SAMPLE ? "" : (src.author||"");
@@ -768,6 +1154,9 @@ function openDialog(){
   $("dlg").showModal();
 }
 async function readFile(f){
+  const version = ++fileReadVersion;
+  $("inLoad").disabled = true;
+  try {
   $("inInfo").textContent = "読み込み中…";
   const buf = await f.arrayBuffer();
   const head = new Uint8Array(buf.slice(0,4));
@@ -781,14 +1170,18 @@ async function readFile(f){
     try { txt = new TextDecoder("utf-8",{fatal:true}).decode(buf); }
     catch(e){ txt = new TextDecoder("shift_jis").decode(buf); }
   }
+  if (version!==fileReadVersion) return;
+  pendingImages = meta.images || {};
+  pendingPdf = {pdfPages:meta.pdfPages,pdfStyles:meta.pdfStyles,pdfAssets:meta.pdfAssets};
   $("inText").value = txt;
-  const p = parseDoc(txt,{paren:$("inParen").checked});
+  const p = parseDoc(txt,{paren:$("inParen").checked,images:pendingImages,pdfPages:meta.pdfPages});
   $("inTitle").value = meta.title || p.title || f.name.replace(/\.[^.]+$/,"");
   $("inAuthor").value = meta.author || p.author || "";
   const n = p.chapters.reduce((s,c)=>s+c.paras.reduce((t,pp)=>t+pp.atoms.reduce((u,a)=>u+a.len,0),0),0);
   let note = "";
-  if (meta.pdf) note = meta.puaFail ? "（PDF から変換された EPUB です。文字の復元に失敗したため、文字化けが残ります）" : meta.puaFixed ? "（PDF から変換された EPUB：文字化けを復元し、行を段落につなぎ直しました）" : "（PDF から変換された EPUB：行を段落につなぎ直しました）";
-  $("inInfo").textContent = `${num(n)}字・${p.chapters.length}章を検出${note}`;
+  if (meta.pdf) note = "（PDF変換EPUB：通常モードは元のページを表示、速読モードは本文を抽出）";
+  $("inInfo").textContent = `${num(n)}字・${p.chapters.length}章・${meta.pdfPages?Object.keys(meta.pdfPages).length+"ページ":"画像"+Object.keys(pendingImages).length+"点"}を検出${note}`;
+  } finally { if (version===fileReadVersion) $("inLoad").disabled = false; }
 }
 
 /* ============ EPUB ============ */
@@ -843,6 +1236,7 @@ function htmlToLines(body, onId){
       const id = n.getAttribute("id");
       if (id && onId){ const mk = onId(id); if (mk){ flush(); lines.push(...mk); } }
       const t = n.localName.toLowerCase();
+      if (n.hasAttribute("data-reader-image")){ flush(); lines.push(`［＃RSVP画像:${n.getAttribute("data-reader-image")}］`); continue; }
       if (SKIP.has(t)) continue;
       if (t==="ruby"){ buf += rubyText(n); continue; }
       if (t==="br"){ buf += "\n"; continue; }
@@ -906,12 +1300,16 @@ function pdfPrepare(docs, cssText){
   return {sizes, bodyFs, bodySize: sizes[bodyFs], freq, usePUA, puaOK};
 }
 function pdfToLines(body, P, onId){
-  const lines = []; let para = "", open = false, sym = "", lastFF = "", newPage = false;
+  const lines = []; let para = "", open = false, sym = "", lastFF = "", newPage = false, page = null;
   const flush = ()=>{ if (para.replace(/[\s　]/g,"")) lines.push(para); para = ""; };
-  for (const el of body.querySelectorAll("[id], .t, .pf")){
+  for (const el of body.querySelectorAll("[id], .t, .pf, [data-reader-image]")){
     const id = el.getAttribute("id");
-    if (id && onId){ const mk = onId(id); if (mk){ flush(); open = false; lines.push(...mk); } }
-    if (el.classList.contains("pf")) newPage = true;
+    if (id && onId){ const mk = onId(id); if (mk){ flush(); open = false; lines.push(...mk); if (page && !el.classList.contains("pf") && mk.some(x=>x.mk?.startsWith("# "))) lines.push(`［＃RSVPページ:${page}］`); } }
+    if (el.hasAttribute("data-reader-image")){ flush(); open = false; lines.push(`［＃RSVP画像:${el.getAttribute("data-reader-image")}］`); continue; }
+    if (el.classList.contains("pf")){
+      flush(); open = false; newPage = true; page = el.dataset.readerPage;
+      if (page) lines.push(`［＃RSVPページ:${page}］`);
+    }
     if (!el.classList.contains("t")) continue;
     const rawT = el.textContent;
     const key = rawT.trim();
@@ -923,6 +1321,7 @@ function pdfToLines(body, P, onId){
     const size = P.sizes[fs];
     if (fs!==P.bodyFs && P.freq[key]>=3 && tr.length<=30) continue;    // 柱（ページ上下の繰り返し）
     if (fs!==P.bodyFs && size && P.bodySize && size < P.bodySize*0.92) continue; // 図中の文字・キャプション・注
+    el.setAttribute("data-reader-text",tr);
     const ff = ((el.getAttribute("class")||"").match(/\bff([0-9a-f]+)\b/)||[])[1]||"";
     // ページをまたぐ段落：前ページが文の途中で終わり、同じ書体で続く場合だけつなぐ
     const pageBrk = newPage && (/[。！？」』）)]$/.test(para) || ff!==lastFF); newPage = false;
@@ -964,7 +1363,7 @@ async function unzip(buf){
     const st = new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
     return new Uint8Array(await new Response(st).arrayBuffer());
   };
-  return {has: n=>files.has(n), text: async n=>{ const b = await raw(n); return b ? td.decode(b) : null; }};
+  return {has: n=>files.has(n), raw, text: async n=>{ const b = await raw(n); return b ? td.decode(b) : null; }};
 }
 async function epubToText(buf){
   const zip = await unzip(buf);
@@ -1034,10 +1433,66 @@ async function epubToText(buf){
   }
   const isPdf = docs.some(x=>x.body.querySelector(".pf .t"));
   let P = null;
+  const rawStyles = new Map();
   if (isPdf){
     let css = "";
-    for (const m of Object.values(man)) if (/css/.test(m.type)) css += (await read(m.href)) || "";
+    for (const m of Object.values(man)) if (/css/.test(m.type)){
+      const text = (await read(m.href)) || ""; css += text;
+      rawStyles.set(m.href,text);
+    }
     P = pdfPrepare(docs, css);
+    let pageNumber = 0;
+    for (const {body} of docs) for (const page of body.querySelectorAll(".pf")){
+      page.dataset.readerPage = "page-"+(++pageNumber);
+      [...page.querySelectorAll(".t")].forEach((line,i)=>line.dataset.readerLine = "line-"+pageNumber+"-"+i);
+    }
+  }
+
+  // EPUB内部の参照だけを展開し、外部URLやイベント属性を本文に持ち込まない。
+  const images = {}, resources = new Map();
+  const mime = path => /\.svg$/i.test(path)?"image/svg+xml":/\.jpe?g$/i.test(path)?"image/jpeg":/\.gif$/i.test(path)?"image/gif":/\.webp$/i.test(path)?"image/webp":/\.woff2$/i.test(path)?"font/woff2":/\.woff$/i.test(path)?"font/woff":/\.otf$/i.test(path)?"font/otf":/\.ttf$/i.test(path)?"font/ttf":"image/png";
+  const dataURL = (bytes,type)=>{
+    let binary = "";
+    for (let i=0;i<bytes.length;i+=32768) binary += String.fromCharCode(...bytes.subarray(i,i+32768));
+    return `data:${type};base64,${btoa(binary)}`;
+  };
+  const resource = async (base,href)=>{
+    if (!href || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(href)) return null;
+    const path = resolve(base,href);
+    // 一部のEPUBはOPF基準のパスをXHTMLに記載する。
+    const actual = zip.has(path) ? path : resolve(opfPath,href);
+    if (!resources.has(actual)){
+      const bytes = await zip.raw(actual);
+      resources.set(actual,bytes ? dataURL(bytes,mime(actual)) : null);
+    }
+    return resources.get(actual);
+  };
+  if (!isPdf) for (const {it,body} of docs){
+    for (const el of body.querySelectorAll("img,svg")){
+      if (el.closest("svg") && el.localName.toLowerCase()!=="svg") continue;
+      const alt = (el.getAttribute("alt")||el.querySelector("title")?.textContent||"").trim();
+      if (el.localName.toLowerCase()==="img" && alt && (Array.from(alt).length===1 || /gaiji/i.test(el.getAttribute("class")||""))) continue;
+      let src;
+      if (el.localName.toLowerCase()==="svg"){
+        const clone = el.cloneNode(true);
+        clone.querySelectorAll("script,foreignObject").forEach(n=>n.remove());
+        for (const n of [clone,...clone.querySelectorAll("*")]){
+          for (const a of [...n.attributes]) if (/^on/i.test(a.name)) n.removeAttribute(a.name);
+          if (n.localName.toLowerCase()==="image"){
+            const url = await resource(it.href,n.getAttribute("href")||n.getAttributeNS("http://www.w3.org/1999/xlink","href"));
+            n.removeAttributeNS("http://www.w3.org/1999/xlink","href");
+            if (url) n.setAttribute("href",url); else n.remove();
+          }
+        }
+        clone.setAttribute("xmlns","http://www.w3.org/2000/svg");
+        src = dataURL(new TextEncoder().encode(new XMLSerializer().serializeToString(clone)),"image/svg+xml");
+      } else src = await resource(it.href,el.getAttribute("src"));
+      if (!src) continue;
+      const id = "img-"+Object.keys(images).length;
+      const width = Number(el.getAttribute("width")), height = Number(el.getAttribute("height"));
+      images[id] = {src,alt,width:width>0?width:0,height:height>0?height:0};
+      el.setAttribute("data-reader-image",id);
+    }
   }
 
   const out = []; let n = 0, dedupe = "";
@@ -1075,11 +1530,78 @@ async function epubToText(buf){
   }
   const text = out.join("\n");
   if (!text.replace(/^# .*$/gm,"").trim()) throw new Error(zip.has("META-INF/encryption.xml") ? "DRM で保護された EPUB は読めません" : "本文が見つかりません");
-  return {text, title, author, pdf: isPdf, puaFixed: P ? P.usePUA : false, puaFail: P ? !P.puaOK : false};
+  let pdfPages, pdfStyles, pdfAssets;
+  if (isPdf){
+    pdfPages = {}; pdfStyles = {}; pdfAssets = {};
+    const assetIds = new Map(), styleIds = new Map();
+    const asset = async (base,href)=>{
+      const src = await resource(base,href); if (!src) return "";
+      if (!assetIds.has(src)){ const id = "asset-"+assetIds.size; assetIds.set(src,id); pdfAssets[id] = src; }
+      return "rsvp-asset:"+assetIds.get(src);
+    };
+    const embedCSS = async (css,base)=>{
+      css = css.replace(/@import[^;]*;/gi,"");
+      const urls = [...css.matchAll(/url\(\s*["']?([^"')]+)["']?\s*\)/gi)];
+      for (const m of urls){ const ref = await asset(base,m[1].trim()); css = css.replace(m[0],ref?`url("${ref}")`:"none"); }
+      return css;
+    };
+    for (const {it,d,body} of docs){
+      const links = [...d.querySelectorAll('link[rel="stylesheet"]')];
+      const key = links.map(l=>resolve(it.href,l.getAttribute("href"))+"|"+(l.getAttribute("media")||"")).join(";");
+      if (!styleIds.has(key)){
+        let css = "";
+        for (const link of links){
+          const path = resolve(it.href,link.getAttribute("href")), media = link.getAttribute("media");
+          const s = await embedCSS(rawStyles.get(path)||await read(path)||"",path);
+          css += media ? `@media ${media}{${s}}` : s;
+        }
+        const id = "style-"+styleIds.size; styleIds.set(key,id); pdfStyles[id] = css;
+      }
+      const style = styleIds.get(key), host = document.createElement("div");
+      Object.assign(host.style,{position:"fixed",left:"-100000px",top:"0",width:"1200px",visibility:"hidden"});
+      const root = host.attachShadow({mode:"closed"}), sheet = document.createElement("style"), box = document.createElement("div");
+      sheet.textContent = pdfStyles[style].replace(/url\([^)]*\)/gi,"none"); box.id = "sbo-rt-content";
+      root.append(sheet,box); document.body.append(host);
+      try { for (const page of body.querySelectorAll(".pf")){
+        const clone = page.cloneNode(true);
+        clone.querySelectorAll("script,style,link,meta,iframe,object,embed,audio,video,form").forEach(el=>el.remove());
+        for (const el of [clone,...clone.querySelectorAll("*")]){
+          const src = el.getAttribute("src"), href = el.getAttribute("href")||el.getAttribute("xlink:href");
+          for (const a of [...el.attributes]) if (/^on/i.test(a.name) || ["src","srcset","href","xlink:href","srcdoc","action","formaction","target"].includes(a.name)) el.removeAttribute(a.name);
+          if (el.hasAttribute("style")) el.setAttribute("style",await embedCSS(el.getAttribute("style"),it.href));
+          if (el.localName==="img"){ const ref = await asset(it.href,src); if (ref) el.setAttribute("src",ref); }
+          if (el.localName==="image"){ const ref = await asset(it.href,href); if (ref) el.setAttribute("href",ref); }
+        }
+        const html = clone.outerHTML;
+        clone.querySelectorAll("[src],[href]").forEach(el=>{el.removeAttribute("src");el.removeAttribute("href");});
+        box.append(clone); const r = clone.getBoundingClientRect(); clone.remove();
+        const id = page.dataset.readerPage;
+        pdfPages[id] = {html,style,width:r.width||420,height:r.height||555,number:Number(id.slice(5)),lines:[...page.querySelectorAll(".t")].map(el=>({id:el.dataset.readerLine,text:el.getAttribute("data-reader-text")}))};
+      } } finally { host.remove(); }
+    }
+  }
+  return {text, title, author, images, pdfPages,pdfStyles,pdfAssets,pdf: isPdf, puaFixed: P ? P.usePUA : false, puaFail: P ? !P.puaOK : false};
 }
 
 /* ============ イベント ============ */
 function bindEvents(){
+  $("btnFooter").onclick = ()=>{ ST.footerExpanded = !ST.footerExpanded; updateReaderFooter(); };
+  $("sMode").onchange = e=>setReaderMode(e.target.value);
+  $("readerBody").onclick = e=>{
+    if (window.getSelection()?.toString()) return;
+    const el = e.target.closest(".c,figure[data-media]");
+    if (el?.dataset.media){ readerUserScroll = false; cancelAnimationFrame(readerFrame); ST.idx = +el.dataset.i; ST.media = {id:el.dataset.media,idx:ST.idx}; markReaderPosition(); renderMeta(); savePos(); }
+    else if (el) seek(+el.dataset.i);
+  };
+  $("readerBody").addEventListener("keydown",e=>{
+    if (e.target.matches("figure[data-media]") && (e.key==="Enter" || e.key===" ")){ e.preventDefault(); e.stopPropagation(); e.target.click(); }
+  });
+  $("readerNext").onclick = ()=>{ if (ST.ch<DOC.chapters.length-1) gotoChapter(ST.ch+1); };
+  const scroller = $("readerScroll");
+  for (const type of ["wheel","touchmove","pointerdown"]) scroller.addEventListener(type,()=>{ readerUserScroll = true; },{passive:true});
+  scroller.addEventListener("scroll",()=>{
+    cancelAnimationFrame(readerFrame); readerFrame = requestAnimationFrame(updateReaderPosition);
+  });
   $("stage").onclick = toggle;
   $("btnPlay").onclick = toggle;
   $("btnReset").onclick = ()=>seek(0);
@@ -1099,21 +1621,33 @@ function bindEvents(){
     if (!$("dlg").open) openDialog();
     $("inText").value = ""; readFile(f).catch(onFileErr);
   });
-  $("inSample").onclick = ()=>{ LS.set("doc", null); loadDoc(SAMPLE, true); $("dlg").close(); toast("サンプルを読み込みました"); };
-  $("inLoad").onclick = ()=>{
+  $("inSample").onclick = async ()=>{ fileReadVersion++; LS.set("doc", SAMPLE); loadDoc(SAMPLE, true); $("dlg").close(); await BOOKS.set(SAMPLE).then(()=>LS.set("doc",null)).catch(()=>{}); toast("サンプルを読み込みました"); };
+  $("inLoad").onclick = async ()=>{
     const text = $("inText").value;
     if (!text.trim()){ $("inInfo").textContent = "本文を貼り付けるか、ファイルを選んでください"; return; }
-    const src = {text, title:$("inTitle").value.trim(), author:$("inAuthor").value.trim(), chars:$("inChars").value, paren:$("inParen").checked};
+    const src = {text, title:$("inTitle").value.trim(), author:$("inAuthor").value.trim(), chars:$("inChars").value, paren:$("inParen").checked, images:pendingImages,...pendingPdf};
     if (loadDoc(src, true)){
-      if (!LS.set("doc", src)) toast("本文が大きすぎて保存できません（この画面を閉じると消えます）");
-      else { const n = DOC.chapters.reduce((s,_,i)=>s+buildChunks(i).total,0); toast(`${num(n)}字・${DOC.chapters.length}章を読み込みました`); }
       $("dlg").close();
+      const {pdfPages,pdfStyles,pdfAssets,...textSource} = src;
+      LS.set("doc",{...textSource,images:{}});
+      try {
+        await BOOKS.set(src); LS.set("doc",null);
+        const n = DOC.chapters.reduce((s,_,i)=>s+buildChunks(i).total,0); toast(`${num(n)}字・${DOC.chapters.length}章を読み込みました`);
+      } catch(e){
+        if (Object.keys(src.images).length || !LS.set("doc",src)) toast("保存できませんでした。本文・画像はこの画面で読めますが、閉じると消えます");
+      }
     }
   };
   document.addEventListener("keydown", e=>{
     if ($("dlg").open) return;
     const t = e.target; if (t && (t.tagName==="INPUT"&&t.type!=="range"&&t.type!=="checkbox" || t.tagName==="TEXTAREA" || t.tagName==="SELECT")) return;
     const k = e.key;
+    if (S.mode==="normal" && [" ","ArrowUp","ArrowDown","PageUp","PageDown","Home","End"].includes(k)){
+      readerUserScroll = true;
+      // 本文にフォーカスを移し、ブラウザー標準のページ送りを利用する。
+      if (t.tagName!=="BUTTON" && t.tagName!=="INPUT") scroller.focus({preventScroll:true});
+      return;
+    }
     if (k===" "){ e.preventDefault(); if (ST.finished && ST.ch<DOC.chapters.length-1){ gotoChapter(ST.ch+1); play(); } else toggle(); }
     else if (k==="ArrowRight"){ e.preventDefault(); e.shiftKey ? seekPara(1) : seek(ST.idx+1); }
     else if (k==="ArrowLeft"){ e.preventDefault(); e.shiftKey ? seekPara(-1) : seek(ST.idx-1); }
@@ -1124,16 +1658,19 @@ function bindEvents(){
     else if (k==="Home"){ seek(0); }
   });
   document.addEventListener("keyup", e=>{ if (e.key===" " && e.target && e.target.tagName==="BUTTON") e.preventDefault(); });
-  let rz = 0; const relayout = ()=>{ cancelAnimationFrame(rz); rz = requestAnimationFrame(()=>{ renderWord(); placeTicks(); }); };
+  let rz = 0; const relayout = ()=>{ cancelAnimationFrame(rz); rz = requestAnimationFrame(()=>{ renderWord(); placeTicks(); renderReader(); }); };
   if ("ResizeObserver" in window) new ResizeObserver(relayout).observe(stageWrap); else window.addEventListener("resize", relayout);
   document.addEventListener("visibilitychange", ()=>{ if (document.hidden) pause(); else if (ST.playing) lockScreen(true); });
-  window.addEventListener("pagehide", ()=>savePos());
+  window.addEventListener("pagehide", ()=>{ updateReaderPosition(); savePos(); });
 }
 
 /* ============ 起動 ============ */
 bindSettings(); bindEvents();
 loadDoc(LS.get("doc", null) || SAMPLE, true);
-if (document.fonts && document.fonts.ready) document.fonts.ready.then(()=>{ renderWord(); });
+const startupSource = loadedSource;
+if (!LS.get("doc",null)) BOOKS.get().then(src=>{ if (src && loadedSource===startupSource && !$("dlg").open) loadDoc(src,true); }).catch(()=>{});
+if (S.mode==="normal") $("keys").textContent = "←→ 1文節 · Shift+←→ 段落";
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(()=>{ renderWord(); renderReader(); });
 </script>
 </body>
 </html>
