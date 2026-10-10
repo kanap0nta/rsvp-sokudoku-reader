@@ -634,14 +634,14 @@ function placeTicks(){
 }
 function renderMeta(){
   const {chunks,total} = cur(); const c = chunks[ST.idx];
-  const pos = c ? c.start + 1 : total;
-  $("mPos").textContent = `${num(Math.min(pos,total))} / ${num(total)}字`;
-  $("fill").style.width = (total ? (c ? c.start : total)/total*100 : 0)+"%";
+  const pos = Math.min(total,c ? c.start+c.len : total);
+  $("mPos").textContent = `${num(pos)} / ${num(total)}字`;
+  $("fill").style.width = (total ? pos/total*100 : 0)+"%";
   $("mRest").textContent = "残り 約" + fmt(SUFFIX[ST.idx]||0);
   if (DOC.chapters.length>1){
     let before = 0, all = 0;
     DOC.chapters.forEach((_,i)=>{ const t = buildChunks(i).total; if (i<ST.ch) before += t; all += t; });
-    $("mAll").textContent = `${circ(ST.ch)} ${DOC.chapters.length}章中 ・ 全体 ${all?Math.floor((before+(c?c.start:total))/all*100):0}%`;
+    $("mAll").textContent = `${circ(ST.ch)} ${DOC.chapters.length}章中 ・ 全体 ${all?Math.floor((before+pos)/all*100):0}%`;
   } else $("mAll").textContent = "";
 }
 let pvRange = [0,0];
