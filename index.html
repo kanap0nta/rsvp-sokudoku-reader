@@ -56,6 +56,7 @@ header{display:flex;align-items:center;gap:14px;padding:10px 18px;border-bottom:
 #readerBody{max-width:42em;margin:auto;font-family:var(--mincho);font-size:20px;line-height:2.2;overflow-wrap:anywhere}
 #readerBody p{margin:0 0 1.2em;white-space:pre-wrap}
 #readerBody p.h{font-weight:700;margin:0 0 1.5em;letter-spacing:.15em}
+#readerBody pre.codeBlock,#preview pre.codeBlock{font-family:Consolas,"Cascadia Mono",monospace;font-size:.85em;line-height:1.6;white-space:pre;overflow-wrap:normal;overflow-x:auto;tab-size:4;padding:12px 14px;margin:0 0 1.2em;background:var(--panel);border:1px solid var(--line);border-radius:7px;letter-spacing:normal}
 #readerBody rt{font-size:.5em;color:var(--sub)}
 #readerBody .c{cursor:pointer;border-radius:3px}
 #readerBody .c:hover{background:color-mix(in srgb,var(--mark) 55%,transparent)}
@@ -364,6 +365,13 @@ function parseDoc(raw, opt){
   let cur = null, pendingTargets = [];
   const newCh = t => { cur = {title:t, paras:[]}; chapters.push(cur); };
   for (let line of lines){
+    const code = line.trim().match(/^［＃RSVPコード:(.*)］$/);
+    if (code){
+      let text; try { text = decodeURIComponent(code[1]); } catch(e){ continue; }
+      if (!cur) newCh("");
+      cur.paras.push({atoms:parseRuby(text,true),heading:false,code:true,targets:pendingTargets}); pendingTargets = [];
+      continue;
+    }
     const target = line.trim().match(/^［＃RSVP移動先:([a-z0-9-]+)］$/);
     if (target){ pendingTargets.push(target[1]); continue; }
     const page = line.trim().match(/^［＃RSVPページ:([a-z0-9-]+)］$/);
@@ -411,7 +419,7 @@ function parseDoc(raw, opt){
   chapters.forEach((c,i)=>{ if(!c.title) c.title = chapters.length===1 ? docTitle : (i===0?"序":"第"+(i+1)+"章"); });
   return {chapters: chapters.filter(c=>c.paras.length), title: title, author: author};
 }
-function parseRuby(s){
+function parseRuby(s, literal=false){
   const cps = Array.from(s), out = [];
   let link = null, targets = [];
   const add = a=>{ a.link = link; a.targets = targets; targets = []; out.push(a); };
@@ -425,12 +433,12 @@ function parseRuby(s){
         i = end; continue;
       }
     }
-    if (c==="｜"||c==="|"){
+    if (!literal && (c==="｜"||c==="|")){
       const lt = cps.indexOf("《",i+1), gt = lt>=0 ? cps.indexOf("》",lt) : -1;
       if (lt>i+1 && gt>lt){ add(atom(cps.slice(i+1,lt).join(""), cps.slice(lt+1,gt).join(""))); i = gt; continue; }
       continue;
     }
-    if (c==="《"){
+    if (!literal && c==="《"){
       const gt = cps.indexOf("》",i);
       if (gt>i){
         let j = out.length, base = "";
@@ -687,9 +695,10 @@ function renderPreview(force, keepScroll=false){
     let h = p0>0 ? `<button class="gap" data-expand="before" aria-label="省略された前の本文を表示" title="省略された前の本文を表示">…</button>` : "";
     let ci = chunks.findIndex(x=>x.para>=p0);
     for (let p=p0;p<=p1;p++){
-      h += `<p${ch.paras[p].heading?' class="h"':""}>`;
+      const para = ch.paras[p], tag = para.code ? "pre" : "p";
+      h += `<${tag}${para.code?' class="codeBlock"':para.heading?' class="h"':""}>`;
       while (ci>=0 && ci<chunks.length && chunks[ci].para===p){ h += `<span class="c" data-i="${ci}">${atomsHTML(chunks[ci].atoms,false)}</span>`; ci++; }
-      h += "</p>";
+      h += `</${tag}>`;
     }
     if (p1<ch.paras.length-1) h += `<button class="gap" data-expand="after" aria-label="省略された後の本文を表示" title="省略された後の本文を表示">…</button>`;
     $("pvBody").innerHTML = h;
@@ -799,11 +808,12 @@ function renderReader(){
         const image = DOC.images[p.image], i = Math.min(ci,Math.max(0,chunks.length-1));
         return `<figure data-media="${p.image}" data-i="${i}" tabindex="0" role="button" aria-label="画像の読書位置を指定"><img src="${esc(image.src)}" alt="${esc(image.alt||'図版')}"${image.width&&image.height?` width="${image.width}" height="${image.height}"`:""}>${image.alt?`<figcaption>${esc(image.alt)}</figcaption>`:""}</figure>`;
       }
-      let h = `<p${p.heading?' class="h"':""}>`;
+      const tag = p.code ? "pre" : "p";
+      let h = `<${tag}${p.code?' class="codeBlock"':p.heading?' class="h"':""}>`;
       while (ci<chunks.length && chunks[ci].para===pi){
         h += `<span class="c" data-i="${ci}">${atomsHTML(chunks[ci].atoms,false,null,true)}</span>`; ci++;
       }
-      return h+"</p>";
+      return h+`</${tag}>`;
     }).join("");
     body.querySelectorAll("img").forEach(img=>img.addEventListener("load",()=>{ if (!readerUserScroll && S.mode==="normal") alignReaderPosition(); }));
   }
@@ -1384,6 +1394,16 @@ function inlineText(el){
   return s;
 }
 const headLine = (txt)=>{ const plain = txt.replace(/［＃RSVP[^］]*］/g,"").replace(/｜/g,"").replace(/《[^》]*》/g,"").replace(/[「」［］＃]/g,""); return `［＃「${plain}」は小見出し］${txt}`; };
+function codeText(el){
+  let text = "";
+  for (const n of el.childNodes){
+    if (n.nodeType===3) text += n.data;
+    else if (n.nodeType===1 && !["script","style"].includes(n.localName.toLowerCase())) text += n.localName.toLowerCase()==="br" ? "\n" : codeText(n);
+  }
+  if (el.hasAttribute("data-reader-link")) text = `［＃RSVPリンク:${el.getAttribute("data-reader-link")}］${text}［＃RSVPリンク終］`;
+  if (el.hasAttribute("data-reader-target")) text = `［＃RSVP移動先:${el.getAttribute("data-reader-target")}］`+text;
+  return text;
+}
 function htmlToLines(body, onId){
   const lines = []; let buf = "";
   const flush = ()=>{ for (const l of buf.split("\n")){ const t = l.replace(/^[ \t]+|[ \t]+$/g,""); if (t.replace(/[\s　]/g,"")) lines.push(t); } buf = ""; };
@@ -1401,6 +1421,9 @@ function htmlToLines(body, onId){
       const t = n.localName.toLowerCase();
       if (n.hasAttribute("data-reader-image")){ flush(); lines.push(`［＃RSVP画像:${n.getAttribute("data-reader-image")}］`); continue; }
       if (SKIP.has(t)) continue;
+      if (t==="pre"){
+        flush(); lines.push(`［＃RSVPコード:${encodeURIComponent(codeText(n))}］`); continue;
+      }
       if (n.hasAttribute("data-reader-link")){ buf += inlineText(n).replace(/^［＃RSVP移動先:[^］]+］/,""); continue; }
       if (t==="ruby"){ buf += rubyText(n); continue; }
       if (t==="br"){ buf += "\n"; continue; }
