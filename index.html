@@ -1097,7 +1097,7 @@ function setReaderMode(mode){
 }
 /* ============ 読み上げ（端末の標準音声：Web Speech API） ============ */
 // 文（長い文は読点）ごとに発話し、終わったら次の文へ。ルビがあれば読みを使い、コードは読み飛ばす。
-const TTS = {on:false, gen:0, u:null, seg:null, voices:[]};
+const TTS = {on:false, gen:0, u:null, seg:null, voices:[], advancing:false};
 const TTS_OK = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
 function ttsPickVoice(){
   const vs = TTS.voices;
@@ -1143,7 +1143,13 @@ function ttsMark(idx, start){
 function ttsSpeak(i){
   const gen = ++TTS.gen, seg = ttsSegment(i);
   if (!seg){
-    if (ST.ch<DOC.chapters.length-1) gotoChapter(ST.ch+1); // gotoChapter から新しい章の先頭で読み上げを再開する
+    if (ST.ch<DOC.chapters.length-1){
+      // 章末：発話は終わっているので取り消しを挟まず、そのまま次の章の先頭から読み続ける。
+      TTS.advancing = true;
+      try { gotoChapter(ST.ch+1); } finally { TTS.advancing = false; }
+      toast(`次の章へ：${DOC.chapters[ST.ch].title||""}`);
+      ttsSpeak(0);
+    }
     else { ttsStop(); toast("最後まで読み上げました"); }
     return;
   }
@@ -1174,7 +1180,8 @@ function ttsStart(){
   if (!TTS_OK){ toast("この端末・ブラウザーでは読み上げを使えません"); return; }
   if (S.mode!=="normal" || !DOC) return;
   TTS.on = true; ttsUI(); lockScreen(true);
-  speechSynthesis.cancel();
+  if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
+  // iOS ではタップの処理中に最初の発話を始める必要があるため、ここでは遅延させない。
   ttsSpeak(Math.max(0,Math.min(ST.idx, cur().chunks.length-1)));
 }
 function ttsStop(){
@@ -1185,9 +1192,15 @@ function ttsStop(){
   ttsUI(); if (!ST.playing) lockScreen(false); savePos();
 }
 // 読む位置を利用者が変えたら（単語のタップ・章の移動・設定変更）、その位置から読み直す。
+// Safari などでは cancel() が遅れて効き、直後に頼んだ発話まで取り消されることがあるため、
+// 発話中に取り消したときは少し待ってから読み始める。章末の自動移動では取り消し自体を行わない。
 function ttsRestart(from=ST.idx){
-  if (!TTS.on) return;
-  TTS.gen++; speechSynthesis.cancel(); ttsSpeak(from);
+  if (!TTS.on || TTS.advancing) return;
+  const gen = ++TTS.gen;
+  if (speechSynthesis.speaking || speechSynthesis.pending){
+    speechSynthesis.cancel();
+    setTimeout(()=>{ if (TTS.on && gen===TTS.gen) ttsSpeak(from); }, 150);
+  } else ttsSpeak(from);
 }
 function updateReaderFooter(){
   const expanded = S.mode!=="normal" || ST.footerExpanded;
