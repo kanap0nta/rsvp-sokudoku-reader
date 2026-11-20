@@ -98,9 +98,21 @@ header{display:flex;align-items:center;gap:14px;padding:10px 18px;border-bottom:
 .pdfPageLabel{position:absolute;inset:0;display:grid;place-items:center;color:#666;font:14px var(--sans);pointer-events:none}
 .pdfPage.loaded .pdfPageLabel{display:none}
 #readerFooter{position:relative;flex-shrink:0}
-#pullHint{position:absolute;left:50%;transform:translateX(-50%);z-index:3;padding:6px 14px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--sub);box-shadow:0 1px 4px #0002;font-size:13px;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .12s}
-#pullHint.top{top:10px} #pullHint.bottom{bottom:10px}
-#pullHint.ready{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+/* 章移動の引っ張り表示（引っ張って更新と同じ形：端から丸い矢印がせり出し、リングで進み具合を示す） */
+#pullHint{--p:0;--y:0px;position:absolute;left:50%;z-index:3;display:flex;flex-direction:column;align-items:center;gap:6px;pointer-events:none;opacity:0;transform:translate(-50%,var(--y))}
+#pullHint.top{top:-46px}
+#pullHint.bottom{bottom:-46px;flex-direction:column-reverse}
+#pullHint.back{transition:transform .2s ease-out,opacity .2s}
+.pullCircle{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--accent) calc(var(--p) * 1turn),var(--track) 0);box-shadow:0 2px 8px #0003;transition:transform .12s}
+.pullCircle::before{content:"";grid-area:1/1;width:34px;height:34px;border-radius:50%;background:var(--panel);transition:background .12s}
+.pullCircle svg{grid-area:1/1;color:var(--accent);transition:transform .15s,color .12s}
+#pullHint.top .pullCircle svg{transform:rotate(180deg)}
+#pullHint.ready .pullCircle{transform:scale(1.1)}
+#pullHint.ready .pullCircle::before{background:var(--accent)}
+#pullHint.ready .pullCircle svg{color:var(--accent-ink)}
+.pullLabel{display:flex;flex-direction:column;align-items:center;max-width:min(80vw,360px);padding:3px 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel);box-shadow:0 1px 4px #0002;font-size:12px;line-height:1.5;color:var(--sub);white-space:nowrap}
+.pullLabel b{font-weight:700;color:var(--ink)}
+.pullLabel span{max-width:100%;overflow:hidden;text-overflow:ellipsis}
 .footerSwitch{display:none;position:absolute;right:18px;bottom:100%;z-index:2}
 .normal .footerSwitch{display:block}
 .normal.footerCollapsed #footerPanel{display:none}
@@ -252,7 +264,7 @@ dialog::backdrop{background:rgba(0,0,0,.35)}
   <div id="stageWrap">
     <section id="reader" aria-label="通常リーダー">
       <div id="readerScroll" tabindex="0" aria-label="本文"><article id="readerBody"></article></div>
-      <div id="pullHint" aria-hidden="true"></div>
+      <div id="pullHint" aria-hidden="true"><div class="pullCircle"><svg width="18" height="18" viewBox="0 0 18 18"><path d="M9 15V3M3.5 8.5 9 3l5.5 5.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div><div class="pullLabel"><b id="pullText"></b><span id="pullTitle"></span></div></div>
     </section>
     <div id="stage" role="button" aria-label="再生・停止">
       <div id="word"></div>
@@ -891,14 +903,24 @@ function chapterPullMove(pull,p){
   const s = $("readerScroll");
   if (!readerWordScrollEnabled() && (pull.dir>0 && s.scrollHeight-s.clientHeight-s.scrollTop>PULL_EDGE || pull.dir<0 && s.scrollTop>PULL_EDGE)) pull.dir = 0;
   const el = $("pullHint");
-  if (!pull.dir || pull.dist<12){ el.style.opacity = "0"; return; }
+  if (!pull.dir || pull.dist<8){ hideChapterPull(); return; }
   const ready = pull.dist>=PULL_DIST;
+  // 指に追従してせり出し、しきい値を超えると動きを鈍らせる（引っ張って更新と同じ手触り）。
+  const travel = pull.dist<=PULL_DIST ? pull.dist*.8 : PULL_DIST*.8 + (pull.dist-PULL_DIST)*.25;
   el.className = (pull.dir>0 ? "bottom" : "top") + (ready ? " ready" : "");
-  el.textContent = pull.dir>0 ? (ready ? "離すと次の章へ" : "引き上げて次の章へ") : (ready ? "離すと前の章へ" : "引き下げて前の章へ");
-  el.style.opacity = String(Math.min(1,.35+pull.dist/PULL_DIST));
+  el.style.setProperty("--y", (pull.dir>0 ? -travel : travel)+"px");
+  el.style.setProperty("--p", Math.min(1,pull.dist/PULL_DIST).toFixed(3));
+  el.style.opacity = "1";
+  $("pullText").textContent = pull.dir>0 ? (ready ? "離すと次の章へ" : "引き上げて次の章へ") : (ready ? "離すと前の章へ" : "引き下げて前の章へ");
+  $("pullTitle").textContent = DOC.chapters[ST.ch+pull.dir]?.title || "";
+}
+function hideChapterPull(){
+  const el = $("pullHint");
+  if (el.style.opacity!=="1") return;
+  el.classList.add("back"); el.style.setProperty("--y","0px"); el.style.opacity = "0";
 }
 function chapterPullEnd(pull){
-  $("pullHint").style.opacity = "0";
+  hideChapterPull();
   if (!pull || !pull.dir || pull.dist<PULL_DIST) return;
   const s = $("readerScroll");
   if (pull.dir>0) gotoChapter(ST.ch+1);
@@ -983,7 +1005,7 @@ function renderReader(){
       let prefix = activeLayout.slice(common).reverse().map(x=>`</${x.tag}>`).join("");
       for (const x of next.slice(common)){
         let attrs = ` class="readerLayout${x.tag==="table"?' readerTable':x.note?' readerNote':''}"`;
-        const style = safeReaderStyle(x.style||""); if (style) attrs += ` style="${esc(style)}"`;
+        const style = capReaderInset(safeReaderStyle(x.style||"")); if (style) attrs += ` style="${esc(style)}"`;
         if (x.tag==="ol"){
           if (Number.isInteger(x.start)) attrs += ` start="${x.start}"`;
           if (x.reversed) attrs += " reversed";
@@ -1590,6 +1612,11 @@ function rubyText(el){
 }
 const READER_TEXT_PROPS = ["color","background-color","font-size","letter-spacing","word-spacing","text-decoration-color"];
 const READER_LAYOUT_PROPS = ["text-align","text-indent","line-height","white-space","margin-top","margin-right","margin-bottom","margin-left","padding-top","padding-right","padding-bottom","padding-left","border-top","border-right","border-bottom","border-left","border-radius","background-color","background-image","background-size","background-position","background-repeat","float","clear","width","max-width","list-style-type","list-style-position","border-collapse","vertical-align","display"];
+// EPUB の枠（注記・囲みなど）が何重にも入れ子になると、左右の余白が積み重なって
+// スマホの幅では本文が1文字幅まで潰れる。左右の余白は親の幅の5%を上限にする（入れ子ほど小さくなる）。
+function capReaderInset(css){
+  return css.replace(/((?:margin|padding)-(?:left|right)):([^;]+);/g,(m,p,v)=>/^[\d.]+(?:em|rem|px|ex|ch|pt)$/.test(v.trim()) && parseFloat(v)>0 ? `${p}:min(${v.trim()},5%);` : m);
+}
 function safeReaderStyle(css,textOnly=false){
   const el = document.createElement("span"); el.style.cssText = css;
   return (textOnly?READER_TEXT_PROPS:READER_LAYOUT_PROPS).map(p=>{
