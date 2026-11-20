@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>RSVP 速読リーダー</title>
+<!-- 高品質読み上げ（piper-plus）用。選んだときだけ動的 import で読み込む -->
+<script type="importmap">
+{"imports":{
+  "piper-plus":"https://unpkg.com/piper-plus@0.8.2/src/index.js",
+  "@piper-plus/g2p":"https://cdn.jsdelivr.net/npm/@piper-plus/g2p@0.4.2/src/index.js",
+  "onnxruntime-web":"https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/ort.min.mjs"
+}}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700&display=swap" rel="stylesheet">
@@ -68,6 +76,11 @@ header{display:flex;align-items:center;gap:14px;padding:10px 18px;border-bottom:
 .noHl #readerBody .c.cur{background:transparent}
 #readerBody .c.tts{text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--accent) 60%,transparent);text-decoration-thickness:2px;text-underline-offset:.35em}
 #sTtsVoice{max-width:180px;min-width:0}
+.ttsCredit{flex-basis:100%;display:block;font-size:11.5px;line-height:1.7;color:var(--sub);white-space:normal;text-align:left;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--panel)}
+.ttsCredit b{color:var(--ink)}
+.ttsCredit a{color:inherit}
+.normal #ctrl .ttsCredit.readerControl{display:block}
+.land #ctrl .row.options{flex-wrap:wrap}
 #ttsFloat{display:none;position:absolute;left:18px;bottom:100%;z-index:2;height:24px;padding:3px 10px;font-size:11px;border-radius:7px 7px 0 0;border-bottom:0;background:var(--panel);box-shadow:0 -1px 3px #0001}
 .normal.ttsOn.footerCollapsed #ttsFloat{display:block}
 .phone #ttsFloat{left:12px}
@@ -298,6 +311,7 @@ dialog::backdrop{background:rgba(0,0,0,.35)}
       <button class="ghost readerControl" id="readerPrev">前の章へ</button>
       <button class="ghost readerControl" id="readerNext">次の章へ</button>
       <button class="ghost readerControl" id="ttsBtn" aria-pressed="false">▶ 読み上げ</button>
+      <label class="grp readerControl"><span>音声</span><select id="sTtsEngine" aria-label="読み上げの方式"><option value="device">端末の音声</option><option value="piper">高品質（piper-plus）</option></select></label>
       <label class="grp readerControl"><span>声</span><select id="sTtsVoice" aria-label="読み上げの声"></select></label>
       <label class="grp readerControl"><span>速さ</span><select id="sTtsRate" aria-label="読み上げの速さ"><option value="0.75">0.75倍</option><option value="1">1倍</option><option value="1.25">1.25倍</option><option value="1.5">1.5倍</option><option value="1.75">1.75倍</option><option value="2">2倍</option></select></label>
       <button id="btnPlay"><span id="pIco">▶</span><span id="pTxt">再生</span></button>
@@ -315,6 +329,7 @@ dialog::backdrop{background:rgba(0,0,0,.35)}
       <label class="chk readerControl"><input type="checkbox" id="sShortWordScroll">短い章では単語ごとにスクロール</label>
       <label class="chk readerControl"><input type="checkbox" id="sLinks">リンクを有効化</label>
       <label class="chk readerControl"><input type="checkbox" id="sNoHl">単語ハイライトを消す</label>
+      <div class="ttsCredit readerControl" id="ttsCredit" hidden></div>
       <label class="chk"><input type="checkbox" id="sPunct">句読点で間をとる</label>
       <label class="chk readerColor"><input type="checkbox" id="sColor">名前を色分け</label>
       <label class="chk"><input type="checkbox" id="sSlow">名前で少し長く</label>
@@ -403,7 +418,7 @@ const LS = {
   get(k,d){try{const v=localStorage.getItem("rsvp:"+k);return v==null?d:JSON.parse(v)}catch(e){return d}},
   set(k,v){try{localStorage.setItem("rsvp:"+k,JSON.stringify(v));return true}catch(e){return false}}
 };
-const DEF = {cpm:1500,group:1,min:3,size:56,punct:true,color:true,label:3,slow:true,vert:false,guide:true,mode:"rsvp",readerSize:20,wordScroll:false,shortWordScroll:false,links:false,landscape:false,hideHighlight:true,ttsRate:1,ttsVoice:""};
+const DEF = {cpm:1500,group:1,min:3,size:56,punct:true,color:true,label:3,slow:true,vert:false,guide:true,mode:"rsvp",readerSize:20,wordScroll:false,shortWordScroll:false,links:false,landscape:false,hideHighlight:true,ttsRate:1,ttsVoice:"",ttsEngine:"device",piperVoice:"css10"};
 const S = Object.assign({}, DEF, LS.get("settings",{}));
 let loadedSource = null, pendingImages = {}, pendingPdf = {}, pendingLinks = {}, fileReadVersion = 0;
 // 本文と画像は同じトランザクションで保存。設定・読書位置は従来どおり軽量な保存を使う。
@@ -1104,12 +1119,102 @@ function ttsPickVoice(){
   return vs.find(v=>v.voiceURI===S.ttsVoice) || vs.find(v=>/Natural|Online|Premium|Enhanced|拡張|高品質/i.test(v.name)) || vs.find(v=>v.localService) || vs[0] || null;
 }
 function ttsRefreshVoices(){
-  if (!TTS_OK) return;
+  const sel = $("sTtsVoice"), credit = $("ttsCredit");
+  if (S.ttsEngine==="piper"){
+    sel.innerHTML = Object.entries(PIPER_VOICES).map(([k,v])=>`<option value="${k}">${esc(v.name)}</option>`).join("");
+    sel.disabled = false; sel.value = PIPER_VOICES[S.piperVoice] ? S.piperVoice : "css10";
+    credit.innerHTML = PIPER_VOICES[sel.value].credit; credit.hidden = false;
+    return;
+  }
+  credit.hidden = true;
+  if (!TTS_OK){ sel.innerHTML = `<option value="">利用できません</option>`; sel.disabled = true; return; }
   TTS.voices = speechSynthesis.getVoices().filter(v=>/^ja(?:[-_]|$)/i.test(v.lang));
-  const sel = $("sTtsVoice"), v = ttsPickVoice();
+  const v = ttsPickVoice();
   sel.innerHTML = TTS.voices.length ? TTS.voices.map((x,i)=>`<option value="${i}">${esc(x.name)}</option>`).join("") : `<option value="">既定の音声</option>`;
   sel.disabled = !TTS.voices.length;
   if (v) sel.value = String(TTS.voices.indexOf(v));
+}
+/* ---- 高品質読み上げ：piper-plus（ブラウザ内のニューラル音声合成・MIT License） ---- */
+// モデルは版（リビジョン）を固定して取得する。初回のみダウンロードし、以後はブラウザーに保存される。
+const PIPER_VOICES = {
+  css10:{name:"CSS10 日本語", url:"https://huggingface.co/ayousanz/piper-plus-css10-ja-6lang/resolve/bd0d812d4db9182ecdb907ef074becf9e230c17f/css10-ja-6lang-fp16.onnx",
+    credit:`音声合成：<a href="https://huggingface.co/ayousanz/piper-plus-css10-ja-6lang" target="_blank" rel="noopener">Piper Plus CSS10 Japanese</a>（<a href="https://github.com/Kyubyong/css10" target="_blank" rel="noopener">CSS10</a> データセット由来）／ <a href="https://github.com/ayutaz/piper-plus" target="_blank" rel="noopener">piper-plus</a>（MIT License）。初回はモデルと辞書（合計約60MB）をダウンロードします。`},
+  tsukuyomi:{name:"つくよみちゃん", url:"https://huggingface.co/ayousanz/piper-plus-tsukuyomi-chan/resolve/d15064792c4e4f2ffd66c10ecc2fd5a99ff0e16a/releases/zs-v1/tsukuyomi.onnx",
+    credit:`<b>■Piper Plus:つくよみちゃん</b>（モデル：<a href="https://huggingface.co/ayousanz/piper-plus-tsukuyomi-chan" target="_blank" rel="noopener">Piper Plus つくよみちゃん</a>）<br>本モデルの音声合成には、フリー素材キャラクター「つくよみちゃん」（© Rei Yumesaki）が無料公開している音声データを使用しています。<br>■つくよみちゃんコーパス（CV.夢前黎）<a href="https://tyc.rei-yumesaki.net/material/corpus/" target="_blank" rel="noopener">https://tyc.rei-yumesaki.net/material/corpus/</a><br><b>禁止事項</b>：出力した音声を次の目的で使用することを禁止します。人を批判・攻撃すること（定義は<a href="https://tyc.rei-yumesaki.net/about/terms/#condition3" target="_blank" rel="noopener">つくよみちゃんキャラクターライセンス</a>に準じます）／特定の政治的立場・宗教・思想への賛同または反対を呼びかけること／刺激の強い表現をゾーニングなしで公開すること／他者に対して二次利用を許可する形で公開すること。<br>推論：<a href="https://github.com/ayutaz/piper-plus" target="_blank" rel="noopener">piper-plus</a>（MIT License）。初回はモデルと辞書（合計約60MB）をダウンロードします。`}
+};
+const PIPER = {tts:null, key:null, loading:null, loadingKey:null, ctx:null, src:null, timer:0, cache:new Map(), queue:Promise.resolve()};
+// iOS ではタップの処理中に AudioContext を起こしておかないと、後から音を出せない。
+function piperUnlock(){
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) throw new Error("AudioContext が使えません");
+  if (!PIPER.ctx) PIPER.ctx = new AC();
+  PIPER.ctx.resume?.();
+  const src = PIPER.ctx.createBufferSource(); src.buffer = PIPER.ctx.createBuffer(1,1,22050); src.connect(PIPER.ctx.destination); src.start(0);
+}
+function piperLoad(){
+  const key = PIPER_VOICES[S.piperVoice] ? S.piperVoice : "css10";
+  if (PIPER.tts && PIPER.key===key) return Promise.resolve(PIPER.tts);
+  if (PIPER.loading && PIPER.loadingKey===key) return PIPER.loading;
+  PIPER.loadingKey = key;
+  const stageName = {model:"音声モデル", phonemizer:"日本語辞書", ready:"準備完了"};
+  PIPER.loading = (async()=>{
+    toast("高品質音声を準備しています…", 60000);
+    const [{PiperPlus}, ort] = await Promise.all([import("piper-plus"), import("onnxruntime-web")]);
+    if (PIPER.tts){ try { PIPER.tts.dispose(); } catch(e){} PIPER.tts = null; PIPER.key = null; }
+    PIPER.cache.clear();
+    const tts = await PiperPlus.initialize({model:PIPER_VOICES[key].url, ort, onProgress:({stage,progress})=>{
+      if (PIPER.loadingKey===key && TTS.on) toast(`高品質音声を準備しています（${stageName[stage]||stage}${progress>0&&progress<1?` ${Math.round(progress*100)}%`:""}）`, 60000);
+    }});
+    // 準備中に声が切り替えられた場合は、古い方を捨てる。
+    if (PIPER.loadingKey!==key){ try { tts.dispose(); } catch(e){} throw new Error("声が切り替えられました"); }
+    PIPER.tts = tts; PIPER.key = key; toast("高品質音声の準備ができました");
+    return tts;
+  })().finally(()=>{ if (PIPER.loadingKey===key){ PIPER.loading = null; PIPER.loadingKey = null; } });
+  return PIPER.loading;
+}
+// 合成は1つずつ順番に行い、同じ文・同じ声・同じ速さの音声は再利用する。
+function piperAudio(seg){
+  const key = `${PIPER.key}|${S.ttsRate}|${seg.text}`;
+  let p = PIPER.cache.get(key);
+  if (!p){
+    const tts = PIPER.tts, rate = S.ttsRate;
+    p = PIPER.queue = PIPER.queue.catch(()=>{}).then(()=>tts.synthesize(seg.text,{language:"ja", lengthScale:1/rate})).then(a=>{
+      const buf = PIPER.ctx.createBuffer(1, Math.max(1,a.samples.length), a.sampleRate);
+      buf.getChannelData(0).set(a.samples); return buf;
+    });
+    p.catch(()=>PIPER.cache.delete(key));
+    PIPER.cache.set(key,p);
+    while (PIPER.cache.size>16) PIPER.cache.delete(PIPER.cache.keys().next().value);
+  }
+  return p;
+}
+function piperHalt(){
+  clearTimeout(PIPER.timer);
+  if (PIPER.src){ PIPER.src.onended = null; try { PIPER.src.stop(); } catch(e){} PIPER.src = null; }
+}
+async function piperSpeak(seg, gen){
+  let buf;
+  try { await piperLoad(); if (gen!==TTS.gen) return; buf = await piperAudio(seg); }
+  catch(e){
+    if (gen!==TTS.gen) return;
+    ttsStop(); toast(`高品質音声を使えませんでした（${e?.message||e}）。「音声」を「端末の音声」に切り替えてください`, 6000); return;
+  }
+  if (gen!==TTS.gen || !TTS.on) return;
+  piperHalt();
+  const src = PIPER.ctx.createBufferSource(); src.buffer = buf; src.connect(PIPER.ctx.destination);
+  PIPER.src = src;
+  src.onended = ()=>{ if (PIPER.src===src) PIPER.src = null; clearTimeout(PIPER.timer); if (gen===TTS.gen && TTS.on) ttsSpeak(seg.to+1); };
+  const t0 = PIPER.ctx.currentTime; src.start();
+  // 文節の位置は、音声の長さを読みの文字数で按分して進める（目安）。
+  const tick = ()=>{
+    if (gen!==TTS.gen || !TTS.on || PIPER.src!==src) return;
+    const at = (PIPER.ctx.currentTime-t0)/buf.duration*seg.text.length;
+    let k = 0; while (k+1<seg.items.length && seg.items[k+1].at<=at) k++;
+    ttsMark(seg.items[k].i, false);
+    PIPER.timer = setTimeout(tick, 150);
+  };
+  tick();
+  // 再生中に次の2文を合成しておき、文と文の間を空けない。
+  const n1 = ttsSegment(seg.to+1); if (n1){ piperAudio(n1).catch(()=>{}); const n2 = ttsSegment(n1.to+1); if (n2) piperAudio(n2).catch(()=>{}); }
 }
 const ttsChunkText = c=>c.atoms.map(a=>a.r||a.t).join("");
 function ttsSegment(i){
@@ -1154,6 +1259,7 @@ function ttsSpeak(i){
     return;
   }
   TTS.seg = seg;
+  if (S.ttsEngine==="piper"){ ttsMark(seg.from, true); piperSpeak(seg, gen); return; }
   const u = new SpeechSynthesisUtterance(seg.text), v = ttsPickVoice();
   u.lang = v?.lang || "ja-JP"; if (v) u.voice = v;
   u.rate = S.ttsRate;
@@ -1177,17 +1283,20 @@ function ttsUI(){
   $("app").classList.toggle("ttsOn", TTS.on);
 }
 function ttsStart(){
-  if (!TTS_OK){ toast("この端末・ブラウザーでは読み上げを使えません"); return; }
   if (S.mode!=="normal" || !DOC) return;
+  if (S.ttsEngine==="piper"){
+    try { piperUnlock(); } catch(e){ toast(`高品質音声を使えません（${e.message}）`, 4000); return; }
+  } else if (!TTS_OK){ toast("この端末・ブラウザーでは読み上げを使えません"); return; }
   TTS.on = true; ttsUI(); lockScreen(true);
-  if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
+  if (TTS_OK && (speechSynthesis.speaking || speechSynthesis.pending)) speechSynthesis.cancel();
   // iOS ではタップの処理中に最初の発話を始める必要があるため、ここでは遅延させない。
   ttsSpeak(Math.max(0,Math.min(ST.idx, cur().chunks.length-1)));
 }
 function ttsStop(){
   if (!TTS.on) return;
   TTS.on = false; TTS.gen++; TTS.u = null; TTS.seg = null;
-  speechSynthesis.cancel();
+  if (TTS_OK) speechSynthesis.cancel();
+  piperHalt();
   $("readerBody").querySelectorAll(".c.tts").forEach(el=>el.classList.remove("tts"));
   ttsUI(); if (!ST.playing) lockScreen(false); savePos();
 }
@@ -1197,6 +1306,7 @@ function ttsStop(){
 function ttsRestart(from=ST.idx){
   if (!TTS.on || TTS.advancing) return;
   const gen = ++TTS.gen;
+  if (S.ttsEngine==="piper"){ piperHalt(); ttsSpeak(from); return; }
   if (speechSynthesis.speaking || speechSynthesis.pending){
     speechSynthesis.cancel();
     setTimeout(()=>{ if (TTS.on && gen===TTS.gen) ttsSpeak(from); }, 150);
@@ -1627,9 +1737,21 @@ function bindSettings(){
   $("sTtsRate").value = String(S.ttsRate);
   if ($("sTtsRate").value!==String(S.ttsRate)){ S.ttsRate = 1; $("sTtsRate").value = "1"; }
   $("sTtsRate").onchange = e=>{ S.ttsRate = +e.target.value; LS.set("settings",S); ttsRestart(TTS.seg?.from ?? ST.idx); };
-  $("sTtsVoice").onchange = e=>{ const v = TTS.voices[+e.target.value]; S.ttsVoice = v ? v.voiceURI : ""; LS.set("settings",S); ttsRestart(TTS.seg?.from ?? ST.idx); };
-  if (TTS_OK){ ttsRefreshVoices(); speechSynthesis.addEventListener?.("voiceschanged", ttsRefreshVoices); }
-  else { $("ttsBtn").disabled = true; $("ttsBtn").title = "この端末・ブラウザーでは読み上げを使えません"; }
+  $("sTtsVoice").onchange = e=>{
+    if (S.ttsEngine==="piper") S.piperVoice = e.target.value;
+    else { const v = TTS.voices[+e.target.value]; S.ttsVoice = v ? v.voiceURI : ""; }
+    LS.set("settings",S); ttsRefreshVoices(); ttsRestart(TTS.seg?.from ?? ST.idx);
+  };
+  S.ttsEngine = S.ttsEngine==="piper" ? "piper" : "device";
+  $("sTtsEngine").value = S.ttsEngine;
+  $("sTtsEngine").onchange = e=>{
+    const from = TTS.seg?.from ?? ST.idx, was = TTS.on;
+    if (was) ttsStop();
+    S.ttsEngine = e.target.value==="piper" ? "piper" : "device"; LS.set("settings",S); ttsRefreshVoices();
+    if (was){ ST.idx = from; ttsStart(); } // 選択の操作中なので、iOS でもここで再開できる
+  };
+  ttsRefreshVoices();
+  if (TTS_OK) speechSynthesis.addEventListener?.("voiceschanged", ()=>{ if (S.ttsEngine!=="piper") ttsRefreshVoices(); });
   $("sLand").checked = !!S.landscape;
   $("sLand").onchange = e=>{ S.landscape = e.target.checked; LS.set("settings",S); updateViewport(); };
   $("sShortWordScroll").checked = !!S.shortWordScroll;
@@ -1645,7 +1767,7 @@ function bumpSpeed(d){
   toast(S.cpm+"字/分");
 }
 let toastT = 0;
-function toast(t){ const e=$("toast"); e.textContent=t; e.classList.add("on"); clearTimeout(toastT); toastT=setTimeout(()=>e.classList.remove("on"),1300); }
+function toast(t,ms=1300){ const e=$("toast"); e.textContent=t; e.classList.add("on"); clearTimeout(toastT); toastT=setTimeout(()=>e.classList.remove("on"),ms); }
 
 /* ============ 読み込み ============ */
 function loadDoc(src, keepPos){
