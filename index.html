@@ -66,6 +66,11 @@ header{display:flex;align-items:center;gap:14px;padding:10px 18px;border-bottom:
 #readerBody .c:hover{background:color-mix(in srgb,var(--mark) 55%,transparent)}
 #readerBody .cur{background:var(--mark)}
 .noHl #readerBody .c.cur{background:transparent}
+#readerBody .c.tts{text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--accent) 60%,transparent);text-decoration-thickness:2px;text-underline-offset:.35em}
+#sTtsVoice{max-width:180px;min-width:0}
+#ttsFloat{display:none;position:absolute;left:18px;bottom:100%;z-index:2;height:24px;padding:3px 10px;font-size:11px;border-radius:7px 7px 0 0;border-bottom:0;background:var(--panel);box-shadow:0 -1px 3px #0001}
+.normal.ttsOn.footerCollapsed #ttsFloat{display:block}
+.phone #ttsFloat{left:12px}
 /* ハイライトを消す設定では、タップ後に残るホバー色や iOS のタップ時の強調表示も出さない */
 .noHl #readerBody .c:hover{background:transparent}
 .noHl #readerBody .c{-webkit-tap-highlight-color:transparent}
@@ -292,6 +297,9 @@ dialog::backdrop{background:rgba(0,0,0,.35)}
       <label class="grp readerControl"><span>文字</span><input type="range" id="sReaderSize" min="14" max="36" step="1"><span class="val px" id="vReaderSize"></span></label>
       <button class="ghost readerControl" id="readerPrev">前の章へ</button>
       <button class="ghost readerControl" id="readerNext">次の章へ</button>
+      <button class="ghost readerControl" id="ttsBtn" aria-pressed="false">▶ 読み上げ</button>
+      <label class="grp readerControl"><span>声</span><select id="sTtsVoice" aria-label="読み上げの声"></select></label>
+      <label class="grp readerControl"><span>速さ</span><select id="sTtsRate" aria-label="読み上げの速さ"><option value="0.75">0.75倍</option><option value="1">1倍</option><option value="1.25">1.25倍</option><option value="1.5">1.5倍</option><option value="1.75">1.75倍</option><option value="2">2倍</option></select></label>
       <button id="btnPlay"><span id="pIco">▶</span><span id="pTxt">再生</span></button>
       <div class="grp"><span>速度</span><input type="range" id="sCpm" min="300" max="3000" step="50"><span class="val" id="vCpm"></span></div>
       <div class="grp"><span>まとめる</span><select id="sGroup">
@@ -316,6 +324,7 @@ dialog::backdrop{background:rgba(0,0,0,.35)}
     </div>
   </div>
   </div>
+  <button class="ghost" id="ttsFloat" aria-label="読み上げを停止">■ 読み上げ停止</button>
   <div class="footerSwitch"><button class="ghost" id="btnFooter" aria-expanded="false" aria-controls="footerPanel" aria-label="操作パネルを開く" title="操作パネルを開く">▴ 操作パネル</button></div>
   </footer>
 </div>
@@ -394,7 +403,7 @@ const LS = {
   get(k,d){try{const v=localStorage.getItem("rsvp:"+k);return v==null?d:JSON.parse(v)}catch(e){return d}},
   set(k,v){try{localStorage.setItem("rsvp:"+k,JSON.stringify(v));return true}catch(e){return false}}
 };
-const DEF = {cpm:1500,group:1,min:3,size:56,punct:true,color:true,label:3,slow:true,vert:false,guide:true,mode:"rsvp",readerSize:20,wordScroll:false,shortWordScroll:false,links:false,landscape:false,hideHighlight:true};
+const DEF = {cpm:1500,group:1,min:3,size:56,punct:true,color:true,label:3,slow:true,vert:false,guide:true,mode:"rsvp",readerSize:20,wordScroll:false,shortWordScroll:false,links:false,landscape:false,hideHighlight:true,ttsRate:1,ttsVoice:""};
 const S = Object.assign({}, DEF, LS.get("settings",{}));
 let loadedSource = null, pendingImages = {}, pendingPdf = {}, pendingLinks = {}, fileReadVersion = 0;
 // 本文と画像は同じトランザクションで保存。設定・読書位置は従来どおり軽量な保存を使う。
@@ -872,7 +881,8 @@ function renderAll(){ renderWord(); placeTicks(); renderMeta(); renderPreview();
 
 /* ============ 通常リーダー（速読と章・チャンク位置を共有） ============ */
 let readerDoc = null, readerKey = "", readerUserScroll = false, readerFrame = 0, readerChapterStart = false;
-function beginReaderScroll(){ readerUserScroll = true; readerChapterStart = false; }
+let readerInputAt = -1e9; // 利用者が最後に本文を触った・スクロールした時刻（読み上げの自動スクロールを控える）
+function beginReaderScroll(){ readerUserScroll = true; readerChapterStart = false; readerInputAt = performance.now(); }
 let wordScrollDelta = 0, wordScrollTime = 0;
 function stepReaderScroll(delta){
   const now = performance.now();
@@ -972,6 +982,7 @@ function markReaderPosition(){
   body.querySelectorAll(".cur").forEach(el=>el.classList.remove("cur"));
   const el = ST.media && ST.media.idx===ST.idx ? body.querySelector(`[data-media="${ST.media.id}"]`) : body.querySelector(`.c[data-i="${ST.idx}"]`);
   if (el) el.classList.add("cur");
+  if (TTS.on && TTS.seg && !body.querySelector(".c.tts")) for (let j=TTS.seg.from;j<=TTS.seg.to;j++) body.querySelector(`.c[data-i="${j}"]`)?.classList.add("tts");
   return el;
 }
 function alignReaderPosition(){
@@ -1073,6 +1084,7 @@ function updateReaderPosition(){
   if (ST.idx!==i || (ST.media?.id||null)!==id){ ST.idx = i; ST.media = id ? {id,idx:i} : null; markReaderPosition(); renderMeta(); savePos(); }
 }
 function setReaderMode(mode){
+  if (mode!=="normal") ttsStop();
   updateReaderPosition();
   pause();
   if (ST.finished){ hideDone(); ST.idx = Math.max(0,cur().chunks.length-1); }
@@ -1082,6 +1094,100 @@ function setReaderMode(mode){
   $("app").classList.toggle("normal", S.mode==="normal");
   $("keys").textContent = S.mode==="normal" ? "←→ 1文節 · Shift+←→ 段落" : "Space 再生/停止 · ←→ 1文節 · Shift+←→ 段落 · ↑↓ 速度 · V 縦横";
   LS.set("settings",S); renderAll(); savePos();
+}
+/* ============ 読み上げ（端末の標準音声：Web Speech API） ============ */
+// 文（長い文は読点）ごとに発話し、終わったら次の文へ。ルビがあれば読みを使い、コードは読み飛ばす。
+const TTS = {on:false, gen:0, u:null, seg:null, voices:[]};
+const TTS_OK = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+function ttsPickVoice(){
+  const vs = TTS.voices;
+  return vs.find(v=>v.voiceURI===S.ttsVoice) || vs.find(v=>/Natural|Online|Premium|Enhanced|拡張|高品質/i.test(v.name)) || vs.find(v=>v.localService) || vs[0] || null;
+}
+function ttsRefreshVoices(){
+  if (!TTS_OK) return;
+  TTS.voices = speechSynthesis.getVoices().filter(v=>/^ja(?:[-_]|$)/i.test(v.lang));
+  const sel = $("sTtsVoice"), v = ttsPickVoice();
+  sel.innerHTML = TTS.voices.length ? TTS.voices.map((x,i)=>`<option value="${i}">${esc(x.name)}</option>`).join("") : `<option value="">既定の音声</option>`;
+  sel.disabled = !TTS.voices.length;
+  if (v) sel.value = String(TTS.voices.indexOf(v));
+}
+const ttsChunkText = c=>c.atoms.map(a=>a.r||a.t).join("");
+function ttsSegment(i){
+  const {chunks} = cur(), paras = DOC.chapters[ST.ch].paras;
+  while (i<chunks.length && (paras[chunks[i].para]?.code || !ttsChunkText(chunks[i]).trim())) i++;
+  if (i>=chunks.length) return null;
+  const items = []; let text = "";
+  for (let j=i;j<chunks.length;j++){
+    const c = chunks[j];
+    if (j>i && paras[c.para]?.code) break;
+    items.push({i:j,at:text.length}); text += ttsChunkText(c);
+    // 長い発話は途中で止まるブラウザーがあるため、文末・段落末のほか、長い文は読点で区切る。
+    if (c.end==="s" || c.paraEnd || c.heading || text.length>=80 && c.end==="c" || text.length>=140) break;
+  }
+  return {from:i, to:items[items.length-1].i, items, text};
+}
+function ttsMark(idx, start){
+  const body = $("readerBody");
+  if (start) body.querySelectorAll(".c.tts").forEach(el=>el.classList.remove("tts"));
+  else if (ST.idx===idx) return;
+  ST.idx = idx; ST.media = null; readerChapterStart = false;
+  const el = markReaderPosition();
+  // 利用者が直前にスクロールしていなければ、読んでいる位置を画面内に保つ。
+  if (el && performance.now()-readerInputAt>4000){
+    const r = vbox(el), R = vbox($("readerScroll"));
+    if (r.top<R.top+R.height*.08 || r.bottom>R.bottom-R.height*.2) alignReaderPosition();
+  }
+  renderMeta();
+  if (start) savePos();
+}
+function ttsSpeak(i){
+  const gen = ++TTS.gen, seg = ttsSegment(i);
+  if (!seg){
+    if (ST.ch<DOC.chapters.length-1) gotoChapter(ST.ch+1); // gotoChapter から新しい章の先頭で読み上げを再開する
+    else { ttsStop(); toast("最後まで読み上げました"); }
+    return;
+  }
+  TTS.seg = seg;
+  const u = new SpeechSynthesisUtterance(seg.text), v = ttsPickVoice();
+  u.lang = v?.lang || "ja-JP"; if (v) u.voice = v;
+  u.rate = S.ttsRate;
+  u.onboundary = e=>{
+    if (gen!==TTS.gen || !TTS.on) return;
+    let k = 0; while (k+1<seg.items.length && seg.items[k+1].at<=e.charIndex) k++;
+    ttsMark(seg.items[k].i, false);
+  };
+  u.onend = ()=>{ if (gen===TTS.gen && TTS.on) ttsSpeak(seg.to+1); };
+  u.onerror = e=>{
+    if (gen!==TTS.gen || e.error==="interrupted" || e.error==="canceled") return;
+    ttsStop(); toast(`読み上げできませんでした（${e.error||"不明なエラー"}）`);
+  };
+  TTS.u = u; // 発話オブジェクトを保持しないと終了イベントが届かないブラウザーがある
+  ttsMark(seg.from, true);
+  speechSynthesis.speak(u);
+}
+function ttsUI(){
+  $("ttsBtn").textContent = TTS.on ? "■ 読み上げ停止" : "▶ 読み上げ";
+  $("ttsBtn").setAttribute("aria-pressed", String(TTS.on));
+  $("app").classList.toggle("ttsOn", TTS.on);
+}
+function ttsStart(){
+  if (!TTS_OK){ toast("この端末・ブラウザーでは読み上げを使えません"); return; }
+  if (S.mode!=="normal" || !DOC) return;
+  TTS.on = true; ttsUI(); lockScreen(true);
+  speechSynthesis.cancel();
+  ttsSpeak(Math.max(0,Math.min(ST.idx, cur().chunks.length-1)));
+}
+function ttsStop(){
+  if (!TTS.on) return;
+  TTS.on = false; TTS.gen++; TTS.u = null; TTS.seg = null;
+  speechSynthesis.cancel();
+  $("readerBody").querySelectorAll(".c.tts").forEach(el=>el.classList.remove("tts"));
+  ttsUI(); if (!ST.playing) lockScreen(false); savePos();
+}
+// 読む位置を利用者が変えたら（単語のタップ・章の移動・設定変更）、その位置から読み直す。
+function ttsRestart(from=ST.idx){
+  if (!TTS.on) return;
+  TTS.gen++; speechSynthesis.cancel(); ttsSpeak(from);
 }
 function updateReaderFooter(){
   const expanded = S.mode!=="normal" || ST.footerExpanded;
@@ -1223,7 +1329,7 @@ function loadPdfFrame(info){
       if (d.getSelection()?.toString()) return;
       const el = e.target.closest("[data-reader-line]");
       const line = info.lines.find(x=>x.id===el?.dataset.readerLine);
-      if (line || e.target.closest(".pf")) pdfSelectLine(info,line,e);
+      if (line || e.target.closest(".pf")){ pdfSelectLine(info,line,e); ttsRestart(); }
     });
     bindReaderScrollInput(d);
     d.addEventListener("keydown",e=>{
@@ -1414,6 +1520,7 @@ function gotoChapter(ci, idx=null){
     if (firstMedia) ST.media = {id:firstMedia.image||firstMedia.page,idx:0};
   }
   $("chSel").value = ST.ch; recomputeTimes(); renderAll(); renderPreview(true); savePos();
+  ttsRestart();
 }
 
 /* ============ 読了・休憩 ============ */
@@ -1502,6 +1609,14 @@ function bindSettings(){
     $("app").classList.toggle("noHl", S.hideHighlight);
     if (S.mode==="normal" && DOC.pdfPages) markPdfPosition();
   };
+  $("ttsBtn").onclick = ()=>TTS.on ? ttsStop() : ttsStart();
+  $("ttsFloat").onclick = ttsStop;
+  $("sTtsRate").value = String(S.ttsRate);
+  if ($("sTtsRate").value!==String(S.ttsRate)){ S.ttsRate = 1; $("sTtsRate").value = "1"; }
+  $("sTtsRate").onchange = e=>{ S.ttsRate = +e.target.value; LS.set("settings",S); ttsRestart(TTS.seg?.from ?? ST.idx); };
+  $("sTtsVoice").onchange = e=>{ const v = TTS.voices[+e.target.value]; S.ttsVoice = v ? v.voiceURI : ""; LS.set("settings",S); ttsRestart(TTS.seg?.from ?? ST.idx); };
+  if (TTS_OK){ ttsRefreshVoices(); speechSynthesis.addEventListener?.("voiceschanged", ttsRefreshVoices); }
+  else { $("ttsBtn").disabled = true; $("ttsBtn").title = "この端末・ブラウザーでは読み上げを使えません"; }
   $("sLand").checked = !!S.landscape;
   $("sLand").onchange = e=>{ S.landscape = e.target.checked; LS.set("settings",S); updateViewport(); };
   $("sShortWordScroll").checked = !!S.shortWordScroll;
@@ -1521,6 +1636,7 @@ function toast(t){ const e=$("toast"); e.textContent=t; e.classList.add("on"); c
 
 /* ============ 読み込み ============ */
 function loadDoc(src, keepPos){
+  ttsStop();
   readerChapterStart = false;
   const parsed = parseDoc(src.text, {paren: src.paren!==false, title: src.title, images:src.images,pdfPages:src.pdfPages});
   if (!parsed.chapters.length) { toast("本文が見つかりませんでした"); return false; }
@@ -1543,6 +1659,7 @@ function loadDoc(src, keepPos){
 }
 
 function openDialog(){
+  ttsStop();
   const src = loadedSource || SAMPLE;
   pendingImages = src.images || {}; fileReadVersion++;
   pendingLinks = src.links || {};
@@ -2262,6 +2379,7 @@ function bindEvents(){
     const el = e.target.closest(".c,figure[data-media]");
     if (el?.dataset.media){ readerChapterStart = false; readerUserScroll = false; cancelAnimationFrame(readerFrame); ST.idx = +el.dataset.i; ST.media = {id:el.dataset.media,idx:ST.idx}; markReaderPosition(); renderMeta(); savePos(); }
     else if (el) seek(+el.dataset.i);
+    if (el) ttsRestart();
   };
   $("readerBody").addEventListener("keydown",e=>{
     if (e.target.matches("figure[data-media]") && (e.key==="Enter" || e.key===" ")){ e.preventDefault(); e.stopPropagation(); e.target.click(); }
@@ -2340,7 +2458,7 @@ function bindEvents(){
   let rz = 0; const relayout = ()=>{ cancelAnimationFrame(rz); rz = requestAnimationFrame(()=>{ renderWord(); placeTicks(); renderReader(); }); };
   if ("ResizeObserver" in window) new ResizeObserver(relayout).observe(stageWrap); else window.addEventListener("resize", relayout);
   for (const type of ["resize","orientationchange"]) window.addEventListener(type, updateViewport);
-  document.addEventListener("visibilitychange", ()=>{ if (document.hidden) pause(); else if (ST.playing) lockScreen(true); });
+  document.addEventListener("visibilitychange", ()=>{ if (document.hidden){ pause(); ttsStop(); } else if (ST.playing) lockScreen(true); });
   window.addEventListener("pagehide", ()=>{ updateReaderPosition(); savePos(); });
 }
 
