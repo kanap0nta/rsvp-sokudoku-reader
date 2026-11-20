@@ -183,6 +183,10 @@ dialog::backdrop{background:rgba(0,0,0,.35)}
 .fl{display:flex;flex-direction:column;gap:5px;font-size:13px;color:var(--sub)}
 .dlgF{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 #inInfo{color:var(--sub);font-size:13px;flex:1}
+/* 長いチェックボックス文言はダイアログ内で折り返し、幅を押し広げない */
+.dlg label.chk{white-space:normal;align-items:flex-start;line-height:1.6}
+.dlg label.chk input{flex-shrink:0;margin-top:.15em}
+#inFile{max-width:100%;min-width:0}
 #toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:8px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none}
 #toast.on{opacity:1}
 
