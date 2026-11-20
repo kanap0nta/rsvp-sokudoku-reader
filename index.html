@@ -106,7 +106,8 @@ header{display:flex;align-items:center;gap:14px;padding:10px 18px;border-bottom:
 .pullCircle{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--accent) calc(var(--p) * 1turn),var(--track) 0);box-shadow:0 2px 8px #0003;transition:transform .12s}
 .pullCircle::before{content:"";grid-area:1/1;width:34px;height:34px;border-radius:50%;background:var(--panel);transition:background .12s}
 .pullCircle svg{grid-area:1/1;color:var(--accent);transition:transform .15s,color .12s}
-#pullHint.top .pullCircle svg{transform:rotate(180deg)}
+/* 矢印は行き先の向き：上端（前の章）は↑、下端（次の章）は↓ */
+#pullHint.bottom .pullCircle svg{transform:rotate(180deg)}
 #pullHint.ready .pullCircle{transform:scale(1.1)}
 #pullHint.ready .pullCircle::before{background:var(--accent)}
 #pullHint.ready .pullCircle svg{color:var(--accent-ink)}
